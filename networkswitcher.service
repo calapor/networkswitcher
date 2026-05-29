@@ -1,0 +1,22 @@
+[Unit]
+Description=WiFi Switcher web panel (upstream link control for the bridge)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/networkswitcher
+# Bind to the eth0 gateway IP so the panel is only reachable from the house LAN,
+# never from the upstream WiFi (wlan0).
+Environment=BIND_HOST=192.168.2.1
+Environment=PORT=8080
+Environment=WIFI_IFACE=wlan0
+Environment=WPA_CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+# If auto-detection picks the wrong DHCP client, set an explicit command, e.g.:
+# Environment=DHCP_CMD=dhclient -1 {iface}
+ExecStart=/opt/networkswitcher/venv/bin/python /opt/networkswitcher/app.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WiFi Switcher</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>WiFi Switcher</h1>
+    <p class="sub">Upstream link for the home bridge (<code>{{ iface }}</code>)</p>
+  </header>
+
+  <section id="status" class="card status">
+    <div class="status-line"><span class="dot" id="dot"></span>
+      <span id="status-text">Loading…</span></div>
+    <dl class="meta">
+      <div><dt>Network</dt><dd id="cur-ssid">—</dd></div>
+      <div><dt>IP address</dt><dd id="cur-ip">—</dd></div>
+      <div><dt>Internet</dt><dd id="cur-net">—</dd></div>
+      <div><dt>To router (eth0)</dt><dd id="cur-eth">—</dd></div>
+      <div><dt>Data in (down)</dt><dd id="cur-rx">—</dd></div>
+      <div><dt>Data out (up)</dt><dd id="cur-tx">—</dd></div>
+    </dl>
+    <div id="action-banner" class="banner hidden"></div>
+  </section>
+
+  <section class="card">
+    <div class="row-between">
+      <h2>Saved networks</h2>
+      <label class="delay">Delay (s)
+        <input type="number" id="switch-delay" min="0" max="120" value="0"></label>
+    </div>
+    <p class="hint">Set a delay, press Connect, then enable a phone hotspot — the
+      bridge switches after the countdown.</p>
+    <ul id="saved" class="list"><li class="muted">Loading…</li></ul>
+  </section>
+
+  <section class="card">
+    <div class="row-between">
+      <h2>Nearby networks</h2>
+      <button id="scan-btn" class="btn">Scan</button>
+    </div>
+    <ul id="scan" class="list"><li class="muted">Press “Scan”.</li></ul>
+  </section>
+
+  <section class="card">
+    <h2>Add a network</h2>
+    <form id="add-form" class="add-form">
+      <label>SSID <input type="text" id="add-ssid" autocomplete="off" required></label>
+      <label>Password <input type="password" id="add-psk" autocomplete="off"
+        placeholder="leave blank for open network"></label>
+      <label class="checkbox"><input type="checkbox" id="add-hidden"> Hidden network</label>
+      <button type="submit" class="btn primary">Add &amp; connect</button>
+    </form>
+  </section>
+
+  <footer><small>Served over the wired link, so this page stays reachable even
+    when the upstream WiFi is down.</small></footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
