@@ -352,7 +352,8 @@ function renderPeriodStacks(data, view) {
     drawChart({ type: "bar", data: { labels, datasets }, options: STACKED_OPTS });
 }
 
-// "By network" view: all-time in/out comparison, one pair of bars per network.
+// "By network" view: all-time total per network as one stacked bar,
+// split into download (bottom) and upload (top).
 function renderNetworkBars(data) {
     const nets = networksByUsage(data).slice(0, 12);
     const n = data.networks || {};
@@ -361,11 +362,11 @@ function renderNetworkBars(data) {
         data: {
             labels: nets,
             datasets: [
-                { label: "In (↓)", data: nets.map(s => n[s].rx), backgroundColor: "#4f8cff99", borderColor: "#4f8cff", borderWidth: 1 },
-                { label: "Out (↑)", data: nets.map(s => n[s].tx), backgroundColor: "#34c75999", borderColor: "#34c759", borderWidth: 1 },
+                { label: "In (↓)", stack: "t", data: nets.map(s => n[s].rx), backgroundColor: "#4f8cff" },
+                { label: "Out (↑)", stack: "t", data: nets.map(s => n[s].tx), backgroundColor: "#34c759" },
             ],
         },
-        options: COMMON_OPTS,
+        options: STACKED_OPTS,
     });
 }
 
