@@ -84,4 +84,13 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 }
 .add-form .checkbox { flex-direction: row; align-items: center; gap: 8px; }
 .add-form .checkbox input { width: auto; }
+.tab-bar { display: flex; gap: 4px; }
+.tab {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 6px; padding: 4px 10px; font-size: .78rem; cursor: pointer;
+}
+.tab:hover { border-color: var(--accent); color: var(--fg); }
+.tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chart-wrap { position: relative; height: 200px; margin-top: 16px; }
+
 footer { margin-top: 24px; text-align: center; color: var(--muted); }

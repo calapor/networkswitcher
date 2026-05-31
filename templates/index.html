@@ -40,6 +40,20 @@
     </dl>
   </section>
 
+  <section class="card" id="history-card">
+    <div class="row-between">
+      <h2>Usage history</h2>
+      <div class="tab-bar">
+        <button class="tab active" data-period="weeks">Weekly</button>
+        <button class="tab" data-period="months">Monthly</button>
+        <button class="tab" data-period="years">Yearly</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="history-chart"></canvas>
+    </div>
+  </section>
+
   <section class="card">
     <div class="row-between">
       <h2>Saved networks</h2>
@@ -73,6 +87,7 @@
   <footer><small>Served over the wired link, so this page stays reachable even
     when the upstream WiFi is down.</small></footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
