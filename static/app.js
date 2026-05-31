@@ -285,7 +285,7 @@ const VIEWS = {
     year:  { source: "months", max: 12, label: monthLabel },
 };
 
-// Per-network colours; download uses the solid hue, upload a translucent one.
+// Per-network line colours; "All networks" uses the foreground colour.
 const NET_COLORS = ["#4f8cff", "#34c759", "#ff9f0a", "#bf5af2", "#5ac8fa", "#ff453a", "#ffd60a", "#ff6482"];
 const COMMON_OPTS = {
     responsive: true,
@@ -322,10 +322,8 @@ function networksByUsage(data) {
     return Object.keys(n).sort((a, b) => (n[b].rx + n[b].tx) - (n[a].rx + n[a].tx));
 }
 
-// Time view: one stacked bar per bucket, split into each network's in/out.
-// The full bar height is the period total; segments show the per-network and
-// download/upload breakdown.
-function renderPeriodStacks(data, view) {
+// Time view: one line per network (total in+out per bucket) plus an "All" line.
+function renderPeriodLines(data, view) {
     const cfg = VIEWS[view];
     const nh = data.networks_history || {};
     const nets = networksByUsage(data);
@@ -335,21 +333,17 @@ function renderPeriodStacks(data, view) {
     const keys = [...keySet].sort().slice(-cfg.max);
     const labels = keys.map(cfg.label);
 
-    const datasets = [];
-    nets.forEach((n, i) => {
-        const dict = (nh[n] || {})[cfg.source] || {};
-        const color = NET_COLORS[i % NET_COLORS.length];
-        datasets.push({
-            label: `${n} ↓`, stack: "t", backgroundColor: color,
-            data: keys.map(k => dict[k] ? dict[k].rx : 0),
-        });
-        datasets.push({
-            label: `${n} ↑`, stack: "t", backgroundColor: color + "66",
-            data: keys.map(k => dict[k] ? dict[k].tx : 0),
-        });
+    const lineFor = (dict, color, label, width) => ({
+        label, borderColor: color, backgroundColor: color,
+        data: keys.map(k => { const v = dict[k]; return v ? v.rx + v.tx : 0; }),
+        borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
     });
 
-    drawChart({ type: "bar", data: { labels, datasets }, options: STACKED_OPTS });
+    const datasets = [lineFor(data[cfg.source] || {}, "#e8eaed", "All networks", 3)];
+    nets.forEach((n, i) =>
+        datasets.push(lineFor((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2)));
+
+    drawChart({ type: "line", data: { labels, datasets }, options: COMMON_OPTS });
 }
 
 // "By network" view: all-time total per network as one stacked bar,
@@ -372,7 +366,7 @@ function renderNetworkBars(data) {
 
 function renderHistoryChart(data, view) {
     if (view === "network") renderNetworkBars(data);
-    else renderPeriodStacks(data, view);
+    else renderPeriodLines(data, view);
 }
 
 async function loadHistory() {
