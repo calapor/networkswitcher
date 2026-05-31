@@ -283,61 +283,88 @@ function monthLabel(key) {
     return new Date(year, month - 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
 }
 
-// Each view drills into its sub-period: a week shows days, a month shows
-// weeks, a year shows months. `max` caps how many trailing bars to plot.
-// The "network" view is keyed by SSID and sorted by total usage instead.
-const byUsageDesc = ([, a], [, b]) => (b.rx + b.tx) - (a.rx + a.tx);
+// Each time view drills into its sub-period: a week shows days, a month shows
+// weeks, a year shows months. `max` caps how many trailing buckets to plot.
 const VIEWS = {
-    week:    { source: "days",     max: 14, label: dayLabel },
-    month:   { source: "weeks",    max: 8,  label: weekLabel },
-    year:    { source: "months",   max: 12, label: monthLabel },
-    network: { source: "networks", max: 12, label: (k) => k, sort: byUsageDesc },
+    week:  { source: "days",   max: 14, label: dayLabel },
+    month: { source: "weeks",  max: 8,  label: weekLabel },
+    year:  { source: "months", max: 12, label: monthLabel },
 };
 
-function renderHistoryChart(data, view) {
-    const cfg = VIEWS[view];
-    let entries = Object.entries(data[cfg.source] || {});
-    if (cfg.sort) {
-        // usage-sorted views (networks): keep the top N
-        entries = entries.sort(cfg.sort).slice(0, cfg.max);
-    } else {
-        // chronological views: keep the most recent N
-        entries = entries.sort(([a], [b]) => a.localeCompare(b)).slice(-cfg.max);
-    }
-    const labels = entries.map(([k]) => cfg.label(k));
-    const isCurrent = entries.map(([, v]) => !!v.current);
-    const rxData = entries.map(([, v]) => v.rx);
-    const txData = entries.map(([, v]) => v.tx);
-    const rxColors = isCurrent.map(c => c ? "#4f8cffbb" : "#4f8cff66");
-    const txColors = isCurrent.map(c => c ? "#34c759bb" : "#34c75966");
+// Line colours for per-network series; "All networks" uses the foreground.
+const NET_COLORS = ["#4f8cff", "#34c759", "#ff9f0a", "#bf5af2", "#5ac8fa", "#ff453a", "#ffd60a", "#ff6482"];
+const COMMON_OPTS = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { labels: { color: "#e8eaed", boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtBytes(c.raw)}` } },
+    },
+    scales: {
+        x: { ticks: { color: "#9aa0a6", font: { size: 11 } }, grid: { color: "#272b3455" } },
+        y: {
+            ticks: { color: "#9aa0a6", font: { size: 11 }, callback: (v) => fmtBytes(v) },
+            grid: { color: "#272b3455" }, beginAtZero: true,
+        },
+    },
+};
 
+function drawChart(config) {
     const ctx = $("history-chart").getContext("2d");
     if (_historyChart) { _historyChart.destroy(); _historyChart = null; }
-    _historyChart = new Chart(ctx, {
+    _historyChart = new Chart(ctx, config);
+}
+
+// Networks sorted by all-time usage, biggest first.
+function networksByUsage(data) {
+    const n = data.networks || {};
+    return Object.keys(n).sort((a, b) => (n[b].rx + n[b].tx) - (n[a].rx + n[a].tx));
+}
+
+// Time view: one line per network (total in+out per bucket) plus an "All" line.
+function renderPeriodLines(data, view) {
+    const cfg = VIEWS[view];
+    const nh = data.networks_history || {};
+    const nets = networksByUsage(data);
+
+    const keySet = new Set(Object.keys(data[cfg.source] || {}));
+    nets.forEach(n => Object.keys((nh[n] || {})[cfg.source] || {}).forEach(k => keySet.add(k)));
+    const keys = [...keySet].sort().slice(-cfg.max);
+    const labels = keys.map(cfg.label);
+
+    const lineFor = (dict, color, label, width) => ({
+        label, borderColor: color, backgroundColor: color,
+        data: keys.map(k => { const v = dict[k]; return v ? v.rx + v.tx : 0; }),
+        borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
+    });
+
+    const datasets = [lineFor(data[cfg.source] || {}, "#e8eaed", "All networks", 3)];
+    nets.forEach((n, i) =>
+        datasets.push(lineFor((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2)));
+
+    drawChart({ type: "line", data: { labels, datasets }, options: COMMON_OPTS });
+}
+
+// "By network" view: all-time in/out comparison, one pair of bars per network.
+function renderNetworkBars(data) {
+    const nets = networksByUsage(data).slice(0, 12);
+    const n = data.networks || {};
+    drawChart({
         type: "bar",
         data: {
-            labels,
+            labels: nets,
             datasets: [
-                { label: "In (↓)", data: rxData, backgroundColor: rxColors, borderColor: "#4f8cff", borderWidth: 1 },
-                { label: "Out (↑)", data: txData, backgroundColor: txColors, borderColor: "#34c759", borderWidth: 1 },
+                { label: "In (↓)", data: nets.map(s => n[s].rx), backgroundColor: "#4f8cff99", borderColor: "#4f8cff", borderWidth: 1 },
+                { label: "Out (↑)", data: nets.map(s => n[s].tx), backgroundColor: "#34c75999", borderColor: "#34c759", borderWidth: 1 },
             ],
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { labels: { color: "#e8eaed", boxWidth: 12, font: { size: 11 } } },
-                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtBytes(c.raw)}` } },
-            },
-            scales: {
-                x: { ticks: { color: "#9aa0a6", font: { size: 11 } }, grid: { color: "#272b3455" } },
-                y: {
-                    ticks: { color: "#9aa0a6", font: { size: 11 }, callback: (v) => fmtBytes(v) },
-                    grid: { color: "#272b3455" },
-                },
-            },
-        },
+        options: COMMON_OPTS,
     });
+}
+
+function renderHistoryChart(data, view) {
+    if (view === "network") renderNetworkBars(data);
+    else renderPeriodLines(data, view);
 }
 
 async function loadHistory() {
