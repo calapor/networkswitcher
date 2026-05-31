@@ -262,7 +262,11 @@ async function doAdd(ev) {
 
 let _historyChart = null;
 let _activeView = "week";
+let _activeMetric = "total";
 let _historyData = null;
+
+// Pick the bytes for the active metric: download, upload, or both.
+const metricVal = (v) => _activeMetric === "in" ? v.rx : _activeMetric === "out" ? v.tx : v.rx + v.tx;
 
 function dayLabel(key) {
     const [y, m, d] = key.split("-").map(Number);
@@ -334,7 +338,7 @@ function renderPeriodLines(data, view) {
 
     const lineFor = (dict, color, label, width) => ({
         label, borderColor: color, backgroundColor: color,
-        data: keys.map(k => { const v = dict[k]; return v ? v.rx + v.tx : 0; }),
+        data: keys.map(k => { const v = dict[k]; return v ? metricVal(v) : 0; }),
         borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
     });
 
@@ -376,15 +380,25 @@ async function loadHistory() {
 
 function switchTab(view) {
     _activeView = view;
-    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.period === view));
+    document.querySelectorAll(".tab[data-period]").forEach(t => t.classList.toggle("active", t.dataset.period === view));
+    // the In/Out/Total toggle only applies to the per-network line views;
+    // the "By network" tab already shows both directions.
+    $("metric-bar").classList.toggle("hidden", view === "network");
     if (_historyData) renderHistoryChart(_historyData, view);
+}
+
+function switchMetric(metric) {
+    _activeMetric = metric;
+    document.querySelectorAll(".tab[data-metric]").forEach(t => t.classList.toggle("active", t.dataset.metric === metric));
+    if (_historyData) renderHistoryChart(_historyData, _activeView);
 }
 
 // --- init -------------------------------------------------------------------
 
 $("scan-btn").addEventListener("click", doScan);
 $("add-form").addEventListener("submit", doAdd);
-document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
+document.querySelectorAll(".tab[data-period]").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
+document.querySelectorAll(".tab[data-metric]").forEach(t => t.addEventListener("click", () => switchMetric(t.dataset.metric)));
 refreshStatus();
 loadHistory();
 setInterval(loadHistory, 300000);
