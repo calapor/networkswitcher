@@ -3,6 +3,7 @@
 Tracks cumulative rx/tx bytes across interface resets and process restarts
 by persisting totals to stats.json in the app directory every 60 seconds.
 """
+import datetime
 import json
 import os
 import threading
@@ -24,14 +25,42 @@ _session_tx = 0
 _last_kernel_rx = None     # last raw kernel counter value seen
 _last_kernel_tx = None
 
+# Period anchor state — guarded by _lock
+_week_key = None;   _week_anchor_rx = 0;   _week_anchor_tx = 0
+_month_key = None;  _month_anchor_rx = 0;  _month_anchor_tx = 0
+_year_key = None;   _year_anchor_rx = 0;   _year_anchor_tx = 0
+
+
+def _current_period_keys():
+    today = datetime.date.today()
+    iso = today.isocalendar()
+    return (
+        f"{iso[0]}-W{iso[1]:02d}",
+        f"{today.year}-{today.month:02d}",
+        f"{today.year}",
+    )
+
 
 def _load():
     global _stored_rx, _stored_tx
+    global _week_key, _week_anchor_rx, _week_anchor_tx
+    global _month_key, _month_anchor_rx, _month_anchor_tx
+    global _year_key, _year_anchor_rx, _year_anchor_tx
     try:
         with open(_STATS_FILE) as f:
             data = json.load(f)
         _stored_rx = int(data["rx_bytes"])
         _stored_tx = int(data["tx_bytes"])
+        pa = data.get("period_anchors", {})
+        _week_key       = pa.get("week_key")
+        _week_anchor_rx = int(pa.get("week_rx", 0))
+        _week_anchor_tx = int(pa.get("week_tx", 0))
+        _month_key       = pa.get("month_key")
+        _month_anchor_rx = int(pa.get("month_rx", 0))
+        _month_anchor_tx = int(pa.get("month_tx", 0))
+        _year_key       = pa.get("year_key")
+        _year_anchor_rx = int(pa.get("year_rx", 0))
+        _year_anchor_tx = int(pa.get("year_tx", 0))
     except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError):
         pass  # first run: defaults stay
 
@@ -41,11 +70,39 @@ def _save_locked():
     try:
         with open(_STATS_FILE, "w") as f:
             json.dump(
-                {"rx_bytes": _stored_rx + _session_rx, "tx_bytes": _stored_tx + _session_tx},
+                {
+                    "rx_bytes": _stored_rx + _session_rx,
+                    "tx_bytes": _stored_tx + _session_tx,
+                    "period_anchors": {
+                        "week_key": _week_key,
+                        "week_rx": _week_anchor_rx,
+                        "week_tx": _week_anchor_tx,
+                        "month_key": _month_key,
+                        "month_rx": _month_anchor_rx,
+                        "month_tx": _month_anchor_tx,
+                        "year_key": _year_key,
+                        "year_rx": _year_anchor_rx,
+                        "year_tx": _year_anchor_tx,
+                    },
+                },
                 f,
             )
     except OSError:
         pass
+
+
+def _refresh_anchors_locked(total_rx, total_tx):
+    """Set or advance period anchors. Must be called with _lock held."""
+    global _week_key, _week_anchor_rx, _week_anchor_tx
+    global _month_key, _month_anchor_rx, _month_anchor_tx
+    global _year_key, _year_anchor_rx, _year_anchor_tx
+    wk, mk, yk = _current_period_keys()
+    if _week_key != wk:
+        _week_key, _week_anchor_rx, _week_anchor_tx = wk, total_rx, total_tx
+    if _month_key != mk:
+        _month_key, _month_anchor_rx, _month_anchor_tx = mk, total_rx, total_tx
+    if _year_key != yk:
+        _year_key, _year_anchor_rx, _year_anchor_tx = yk, total_rx, total_tx
 
 
 def _saver_loop():
@@ -66,6 +123,8 @@ def init():
     rx, tx = net.iface_bytes(config.IFACE)
     _last_kernel_rx = rx if rx is not None else 0
     _last_kernel_tx = tx if tx is not None else 0
+    with _lock:
+        _refresh_anchors_locked(_stored_rx + _session_rx, _stored_tx + _session_tx)
     threading.Thread(target=_saver_loop, daemon=True, name="stats-saver").start()
 
 
@@ -94,4 +153,19 @@ def update(kernel_rx, kernel_tx):
                 _session_tx = kernel_tx
             _last_kernel_tx = kernel_tx
 
-        return _stored_rx + _session_rx, _stored_tx + _session_tx
+        total_rx = _stored_rx + _session_rx
+        total_tx = _stored_tx + _session_tx
+        _refresh_anchors_locked(total_rx, total_tx)
+        return total_rx, total_tx
+
+
+def period_totals():
+    """Return (week_rx, week_tx, month_rx, month_tx, year_rx, year_tx)."""
+    with _lock:
+        total_rx = _stored_rx + _session_rx
+        total_tx = _stored_tx + _session_tx
+        return (
+            total_rx - _week_anchor_rx,  total_tx - _week_anchor_tx,
+            total_rx - _month_anchor_rx, total_tx - _month_anchor_tx,
+            total_rx - _year_anchor_rx,  total_tx - _year_anchor_tx,
+        )

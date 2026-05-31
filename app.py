@@ -107,6 +107,7 @@ def api_status():
         return jsonify({"error": str(e), "action": _action}), 200
     rx, tx = net.iface_bytes(config.IFACE)
     all_rx, all_tx = persist_stats.update(rx, tx)
+    week_rx, week_tx, month_rx, month_tx, year_rx, year_tx = persist_stats.period_totals()
     return jsonify({
         "ssid": st.get("ssid", ""),
         "bssid": st.get("bssid", ""),
@@ -119,6 +120,12 @@ def api_status():
         "tx_bytes": tx,
         "all_time_rx_bytes": all_rx,
         "all_time_tx_bytes": all_tx,
+        "week_rx_bytes": week_rx,
+        "week_tx_bytes": week_tx,
+        "month_rx_bytes": month_rx,
+        "month_tx_bytes": month_tx,
+        "year_rx_bytes": year_rx,
+        "year_tx_bytes": year_tx,
         "action": _action,
     })
 
