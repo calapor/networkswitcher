@@ -43,8 +43,25 @@ live progress and any failure.
 
 ## Install (on the Pi)
 
+### 1. Authorize the Pi to clone from GitHub
+
+The Pi needs its own SSH key registered with GitHub (this is a one-time step and won't affect any other keys you have):
+
 ```bash
-git clone https://github.com/calapor/networkswitcher networkswitcher
+# Generate a key on the Pi
+ssh pi@192.168.2.1 "ssh-keygen -t ed25519 -C 'pi@networkswitcher' -N '' -f ~/.ssh/id_ed25519"
+
+# Print the public key
+ssh pi@192.168.2.1 "cat ~/.ssh/id_ed25519.pub"
+```
+
+Paste the output into **GitHub → Settings → SSH and GPG keys → New SSH key**.
+
+### 2. Clone and install
+
+```bash
+ssh pi@192.168.2.1
+git clone git@github.com:calapor/networkswitcher networkswitcher
 cd networkswitcher
 sudo ./install.sh
 ```
@@ -54,7 +71,9 @@ The installer runs preflight checks (confirms `wpa_cli` reaches
 creates a virtualenv, and installs + starts the `networkswitcher` systemd
 service.
 
-Then open from any device on the house WiFi:
+### 3. Open the panel
+
+From any device on the house WiFi:
 
 ```
 http://192.168.2.1:8080
@@ -62,33 +81,22 @@ http://192.168.2.1:8080
 
 ## Deploying updates
 
-**Option A — git pull on the Pi (recommended)**
+To update the Pi after pushing changes from your Mac:
 
 ```bash
-# On your Mac: commit and push
-git add -A && git commit -m "your message"
-git push
-
-# On the Pi: pull and reinstall
 ssh pi@192.168.2.1
 cd ~/networkswitcher
-git pull
-sudo ./install.sh
+git pull          # fetch latest from GitHub
+sudo ./install.sh # copy files to /opt and restart the service
 ```
 
-**Option B — scp changed files directly (no git needed on Pi)**
+`git pull` updates the local clone; `install.sh` then copies the files into
+`/opt/networkswitcher` and restarts the service. Both steps are always needed.
+
+Check it came up:
 
 ```bash
-PI=pi@192.168.2.1
-scp app.py persist_stats.py templates/index.html static/app.js install.sh \
-    $PI:/opt/networkswitcher/
-ssh $PI "sudo systemctl restart networkswitcher"
-```
-
-Check it came up after either option:
-
-```bash
-ssh pi@192.168.2.1 "sudo systemctl status networkswitcher"
+sudo systemctl status networkswitcher
 ```
 
 ## Configuration
