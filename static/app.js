@@ -54,8 +54,14 @@ function renderStatus(s) {
   $("cur-eth").textContent = s.eth0_up ? "✅ linked" : "❌ down";
   $("cur-rx").textContent = s.error ? "—" : fmtBytes(s.rx_bytes);
   $("cur-tx").textContent = s.error ? "—" : fmtBytes(s.tx_bytes);
-  $("all-rx").textContent = s.error ? "—" : fmtBytes(s.all_time_rx_bytes);
-  $("all-tx").textContent = s.error ? "—" : fmtBytes(s.all_time_tx_bytes);
+  $("all-rx").textContent   = s.error ? "—" : fmtBytes(s.all_time_rx_bytes);
+  $("all-tx").textContent   = s.error ? "—" : fmtBytes(s.all_time_tx_bytes);
+  $("week-rx").textContent  = s.error ? "—" : fmtBytes(s.week_rx_bytes);
+  $("week-tx").textContent  = s.error ? "—" : fmtBytes(s.week_tx_bytes);
+  $("month-rx").textContent = s.error ? "—" : fmtBytes(s.month_rx_bytes);
+  $("month-tx").textContent = s.error ? "—" : fmtBytes(s.month_tx_bytes);
+  $("year-rx").textContent  = s.error ? "—" : fmtBytes(s.year_rx_bytes);
+  $("year-tx").textContent  = s.error ? "—" : fmtBytes(s.year_tx_bytes);
 
   const banner = $("action-banner");
   // A "failed" verdict can go stale: a slow AP may associate just after the
