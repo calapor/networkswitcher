@@ -44,7 +44,7 @@ live progress and any failure.
 ## Install (on the Pi)
 
 ```bash
-git clone <this-repo> networkswitcher
+git clone https://github.com/calapor/networkswitcher networkswitcher
 cd networkswitcher
 sudo ./install.sh
 ```
@@ -58,6 +58,37 @@ Then open from any device on the house WiFi:
 
 ```
 http://192.168.2.1:8080
+```
+
+## Deploying updates
+
+**Option A — git pull on the Pi (recommended)**
+
+```bash
+# On your Mac: commit and push
+git add -A && git commit -m "your message"
+git push
+
+# On the Pi: pull and reinstall
+ssh pi@192.168.2.1
+cd ~/networkswitcher
+git pull
+sudo ./install.sh
+```
+
+**Option B — scp changed files directly (no git needed on Pi)**
+
+```bash
+PI=pi@192.168.2.1
+scp app.py persist_stats.py templates/index.html static/app.js install.sh \
+    $PI:/opt/networkswitcher/
+ssh $PI "sudo systemctl restart networkswitcher"
+```
+
+Check it came up after either option:
+
+```bash
+ssh pi@192.168.2.1 "sudo systemctl status networkswitcher"
 ```
 
 ## Configuration

@@ -12,9 +12,11 @@ from flask import Flask, jsonify, render_template, request
 
 import config
 import net
+import persist_stats
 import wifi
 
 app = Flask(__name__)
+persist_stats.init()
 
 # --- background switch worker ----------------------------------------------
 
@@ -104,6 +106,7 @@ def api_status():
     except wifi.WifiError as e:
         return jsonify({"error": str(e), "action": _action}), 200
     rx, tx = net.iface_bytes(config.IFACE)
+    all_rx, all_tx = persist_stats.update(rx, tx)
     return jsonify({
         "ssid": st.get("ssid", ""),
         "bssid": st.get("bssid", ""),
@@ -114,6 +117,8 @@ def api_status():
         "eth0_up": net.iface_carrier("eth0"),
         "rx_bytes": rx,
         "tx_bytes": tx,
+        "all_time_rx_bytes": all_rx,
+        "all_time_tx_bytes": all_tx,
         "action": _action,
     })
 

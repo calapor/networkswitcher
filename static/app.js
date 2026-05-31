@@ -54,6 +54,8 @@ function renderStatus(s) {
   $("cur-eth").textContent = s.eth0_up ? "✅ linked" : "❌ down";
   $("cur-rx").textContent = s.error ? "—" : fmtBytes(s.rx_bytes);
   $("cur-tx").textContent = s.error ? "—" : fmtBytes(s.tx_bytes);
+  $("all-rx").textContent = s.error ? "—" : fmtBytes(s.all_time_rx_bytes);
+  $("all-tx").textContent = s.error ? "—" : fmtBytes(s.all_time_tx_bytes);
 
   const banner = $("action-banner");
   // A "failed" verdict can go stale: a slow AP may associate just after the
