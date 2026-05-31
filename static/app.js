@@ -285,17 +285,25 @@ function monthLabel(key) {
 
 // Each view drills into its sub-period: a week shows days, a month shows
 // weeks, a year shows months. `max` caps how many trailing bars to plot.
+// The "network" view is keyed by SSID and sorted by total usage instead.
+const byUsageDesc = ([, a], [, b]) => (b.rx + b.tx) - (a.rx + a.tx);
 const VIEWS = {
-    week:  { source: "days",   max: 14, label: dayLabel },
-    month: { source: "weeks",  max: 8,  label: weekLabel },
-    year:  { source: "months", max: 12, label: monthLabel },
+    week:    { source: "days",     max: 14, label: dayLabel },
+    month:   { source: "weeks",    max: 8,  label: weekLabel },
+    year:    { source: "months",   max: 12, label: monthLabel },
+    network: { source: "networks", max: 12, label: (k) => k, sort: byUsageDesc },
 };
 
 function renderHistoryChart(data, view) {
     const cfg = VIEWS[view];
-    const entries = Object.entries(data[cfg.source] || {})
-        .sort(([a], [b]) => a.localeCompare(b))
-        .slice(-cfg.max);
+    let entries = Object.entries(data[cfg.source] || {});
+    if (cfg.sort) {
+        // usage-sorted views (networks): keep the top N
+        entries = entries.sort(cfg.sort).slice(0, cfg.max);
+    } else {
+        // chronological views: keep the most recent N
+        entries = entries.sort(([a], [b]) => a.localeCompare(b)).slice(-cfg.max);
+    }
     const labels = entries.map(([k]) => cfg.label(k));
     const isCurrent = entries.map(([, v]) => !!v.current);
     const rxData = entries.map(([, v]) => v.rx);
