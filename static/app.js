@@ -261,8 +261,13 @@ async function doAdd(ev) {
 // --- history chart ----------------------------------------------------------
 
 let _historyChart = null;
-let _activePeriod = "weeks";
+let _activeView = "week";
 let _historyData = null;
+
+function dayLabel(key) {
+    const [y, m, d] = key.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric" });
+}
 
 function weekLabel(key) {
     const [year, week] = key.split("-W").map(Number);
@@ -278,11 +283,20 @@ function monthLabel(key) {
     return new Date(year, month - 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
 }
 
-function renderHistoryChart(data, period) {
-    const entries = Object.entries(data[period]).sort(([a], [b]) => a.localeCompare(b));
-    const labels = entries.map(([k]) =>
-        period === "weeks" ? weekLabel(k) : period === "months" ? monthLabel(k) : k
-    );
+// Each view drills into its sub-period: a week shows days, a month shows
+// weeks, a year shows months. `max` caps how many trailing bars to plot.
+const VIEWS = {
+    week:  { source: "days",   max: 14, label: dayLabel },
+    month: { source: "weeks",  max: 8,  label: weekLabel },
+    year:  { source: "months", max: 12, label: monthLabel },
+};
+
+function renderHistoryChart(data, view) {
+    const cfg = VIEWS[view];
+    const entries = Object.entries(data[cfg.source] || {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-cfg.max);
+    const labels = entries.map(([k]) => cfg.label(k));
     const isCurrent = entries.map(([, v]) => !!v.current);
     const rxData = entries.map(([, v]) => v.rx);
     const txData = entries.map(([, v]) => v.tx);
@@ -321,14 +335,14 @@ function renderHistoryChart(data, period) {
 async function loadHistory() {
     try {
         _historyData = await getJSON("/api/history");
-        renderHistoryChart(_historyData, _activePeriod);
+        renderHistoryChart(_historyData, _activeView);
     } catch (e) { /* ignore — chart stays blank */ }
 }
 
-function switchTab(period) {
-    _activePeriod = period;
-    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.period === period));
-    if (_historyData) renderHistoryChart(_historyData, period);
+function switchTab(view) {
+    _activeView = view;
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.period === view));
+    if (_historyData) renderHistoryChart(_historyData, view);
 }
 
 // --- init -------------------------------------------------------------------

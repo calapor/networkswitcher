@@ -26,26 +26,29 @@ _last_kernel_rx = None     # last raw kernel counter value seen
 _last_kernel_tx = None
 
 # Period anchor state — guarded by _lock
+_day_key = None;    _day_anchor_rx = 0;    _day_anchor_tx = 0
 _week_key = None;   _week_anchor_rx = 0;   _week_anchor_tx = 0
 _month_key = None;  _month_anchor_rx = 0;  _month_anchor_tx = 0
 _year_key = None;   _year_anchor_rx = 0;   _year_anchor_tx = 0
 
 # Historical completed-period totals — guarded by _lock
-_history: dict = {"weeks": {}, "months": {}, "years": {}}
+_history: dict = {"days": {}, "weeks": {}, "months": {}, "years": {}}
 
 
 def _current_period_keys():
     today = datetime.date.today()
     iso = today.isocalendar()
     return (
-        f"{iso[0]}-W{iso[1]:02d}",
-        f"{today.year}-{today.month:02d}",
-        f"{today.year}",
+        today.isoformat(),                  # day,  e.g. "2026-05-31"
+        f"{iso[0]}-W{iso[1]:02d}",          # week, e.g. "2026-W22"
+        f"{today.year}-{today.month:02d}",  # month
+        f"{today.year}",                    # year
     )
 
 
 def _load():
     global _stored_rx, _stored_tx
+    global _day_key, _day_anchor_rx, _day_anchor_tx
     global _week_key, _week_anchor_rx, _week_anchor_tx
     global _month_key, _month_anchor_rx, _month_anchor_tx
     global _year_key, _year_anchor_rx, _year_anchor_tx
@@ -55,6 +58,9 @@ def _load():
         _stored_rx = int(data["rx_bytes"])
         _stored_tx = int(data["tx_bytes"])
         pa = data.get("period_anchors", {})
+        _day_key        = pa.get("day_key")
+        _day_anchor_rx  = int(pa.get("day_rx", 0))
+        _day_anchor_tx  = int(pa.get("day_tx", 0))
         _week_key       = pa.get("week_key")
         _week_anchor_rx = int(pa.get("week_rx", 0))
         _week_anchor_tx = int(pa.get("week_tx", 0))
@@ -65,6 +71,7 @@ def _load():
         _year_anchor_rx = int(pa.get("year_rx", 0))
         _year_anchor_tx = int(pa.get("year_tx", 0))
         hist = data.get("history", {})
+        _history["days"]   = hist.get("days", {})
         _history["weeks"]  = hist.get("weeks", {})
         _history["months"] = hist.get("months", {})
         _history["years"]  = hist.get("years", {})
@@ -81,6 +88,9 @@ def _save_locked():
                     "rx_bytes": _stored_rx + _session_rx,
                     "tx_bytes": _stored_tx + _session_tx,
                     "period_anchors": {
+                        "day_key": _day_key,
+                        "day_rx": _day_anchor_rx,
+                        "day_tx": _day_anchor_tx,
                         "week_key": _week_key,
                         "week_rx": _week_anchor_rx,
                         "week_tx": _week_anchor_tx,
@@ -92,6 +102,7 @@ def _save_locked():
                         "year_tx": _year_anchor_tx,
                     },
                     "history": {
+                        "days":   _history["days"],
                         "weeks":  _history["weeks"],
                         "months": _history["months"],
                         "years":  _history["years"],
@@ -105,10 +116,15 @@ def _save_locked():
 
 def _refresh_anchors_locked(total_rx, total_tx):
     """Set or advance period anchors. Must be called with _lock held."""
+    global _day_key, _day_anchor_rx, _day_anchor_tx
     global _week_key, _week_anchor_rx, _week_anchor_tx
     global _month_key, _month_anchor_rx, _month_anchor_tx
     global _year_key, _year_anchor_rx, _year_anchor_tx
-    wk, mk, yk = _current_period_keys()
+    dk, wk, mk, yk = _current_period_keys()
+    if _day_key != dk:
+        if _day_key is not None:
+            _history["days"][_day_key] = {"rx": total_rx - _day_anchor_rx, "tx": total_tx - _day_anchor_tx}
+        _day_key, _day_anchor_rx, _day_anchor_tx = dk, total_rx, total_tx
     if _week_key != wk:
         if _week_key is not None:
             _history["weeks"][_week_key] = {"rx": total_rx - _week_anchor_rx, "tx": total_tx - _week_anchor_tx}
@@ -194,8 +210,10 @@ def get_history():
     with _lock:
         total_rx = _stored_rx + _session_rx
         total_tx = _stored_tx + _session_tx
-        wk, mk, yk = _current_period_keys()
+        dk, wk, mk, yk = _current_period_keys()
         return {
+            "days":   {**_history["days"],
+                       dk: {"rx": total_rx - _day_anchor_rx,   "tx": total_tx - _day_anchor_tx,   "current": True}},
             "weeks":  {**_history["weeks"],
                        wk: {"rx": total_rx - _week_anchor_rx,  "tx": total_tx - _week_anchor_tx,  "current": True}},
             "months": {**_history["months"],
