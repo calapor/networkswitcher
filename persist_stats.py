@@ -34,6 +34,13 @@ _year_key = None;   _year_anchor_rx = 0;   _year_anchor_tx = 0
 # Historical completed-period totals — guarded by _lock
 _history: dict = {"days": {}, "weeks": {}, "months": {}, "years": {}}
 
+# Cumulative bytes attributed to each SSID — guarded by _lock.
+# The kernel counter is interface-wide, so traffic is credited to whichever
+# network is connected when each delta is seen. On the first run with this
+# feature the connected network is seeded with all existing all-time usage.
+_by_ssid: dict = {}
+_by_ssid_seeded = False
+
 
 def _current_period_keys():
     today = datetime.date.today()
@@ -47,7 +54,7 @@ def _current_period_keys():
 
 
 def _load():
-    global _stored_rx, _stored_tx
+    global _stored_rx, _stored_tx, _by_ssid, _by_ssid_seeded
     global _day_key, _day_anchor_rx, _day_anchor_tx
     global _week_key, _week_anchor_rx, _week_anchor_tx
     global _month_key, _month_anchor_rx, _month_anchor_tx
@@ -75,6 +82,9 @@ def _load():
         _history["weeks"]  = hist.get("weeks", {})
         _history["months"] = hist.get("months", {})
         _history["years"]  = hist.get("years", {})
+        if "by_ssid" in data:
+            _by_ssid = dict(data["by_ssid"])
+            _by_ssid_seeded = True
     except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError):
         pass  # first run: defaults stay
 
@@ -107,6 +117,7 @@ def _save_locked():
                         "months": _history["months"],
                         "years":  _history["years"],
                     },
+                    "by_ssid": _by_ssid,
                 },
                 f,
             )
@@ -162,34 +173,53 @@ def init():
     threading.Thread(target=_saver_loop, daemon=True, name="stats-saver").start()
 
 
-def update(kernel_rx, kernel_tx):
+def update(kernel_rx, kernel_tx, ssid=None):
     """Feed the latest raw kernel counter values; return (all_time_rx, all_time_tx).
 
     Handles counter resets (interface bounce) by detecting when the kernel
-    value decreases and treating the new value as counting from zero.
+    value decreases and treating the new value as counting from zero. When
+    ``ssid`` is given, this cycle's traffic is credited to that network.
     """
     global _session_rx, _session_tx, _last_kernel_rx, _last_kernel_tx, _stored_rx, _stored_tx
+    global _by_ssid_seeded
     with _lock:
+        delta_rx = delta_tx = 0
         if kernel_rx is not None and _last_kernel_rx is not None:
             if kernel_rx >= _last_kernel_rx:
-                _session_rx += kernel_rx - _last_kernel_rx
+                delta_rx = kernel_rx - _last_kernel_rx
+                _session_rx += delta_rx
             else:
                 # counter reset — fold session into stored and start fresh
                 _stored_rx += _session_rx
                 _session_rx = kernel_rx
+                delta_rx = kernel_rx
             _last_kernel_rx = kernel_rx
 
         if kernel_tx is not None and _last_kernel_tx is not None:
             if kernel_tx >= _last_kernel_tx:
-                _session_tx += kernel_tx - _last_kernel_tx
+                delta_tx = kernel_tx - _last_kernel_tx
+                _session_tx += delta_tx
             else:
                 _stored_tx += _session_tx
                 _session_tx = kernel_tx
+                delta_tx = kernel_tx
             _last_kernel_tx = kernel_tx
 
         total_rx = _stored_rx + _session_rx
         total_tx = _stored_tx + _session_tx
         _refresh_anchors_locked(total_rx, total_tx)
+
+        if ssid:
+            if not _by_ssid_seeded:
+                # First run with this feature: attribute all existing usage to
+                # whatever network is connected right now.
+                _by_ssid[ssid] = {"rx": total_rx, "tx": total_tx}
+                _by_ssid_seeded = True
+            else:
+                b = _by_ssid.setdefault(ssid, {"rx": 0, "tx": 0})
+                b["rx"] += delta_rx
+                b["tx"] += delta_tx
+
         return total_rx, total_tx
 
 
@@ -220,4 +250,5 @@ def get_history():
                        mk: {"rx": total_rx - _month_anchor_rx, "tx": total_tx - _month_anchor_tx, "current": True}},
             "years":  {**_history["years"],
                        yk: {"rx": total_rx - _year_anchor_rx,  "tx": total_tx - _year_anchor_tx,  "current": True}},
+            "networks": {s: dict(v) for s, v in _by_ssid.items()},
         }

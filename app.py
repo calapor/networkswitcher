@@ -106,7 +106,7 @@ def api_status():
     except wifi.WifiError as e:
         return jsonify({"error": str(e), "action": _action}), 200
     rx, tx = net.iface_bytes(config.IFACE)
-    all_rx, all_tx = persist_stats.update(rx, tx)
+    all_rx, all_tx = persist_stats.update(rx, tx, st.get("ssid"))
     week_rx, week_tx, month_rx, month_tx, year_rx, year_tx = persist_stats.period_totals()
     return jsonify({
         "ssid": st.get("ssid", ""),
