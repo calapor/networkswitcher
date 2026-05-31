@@ -130,6 +130,11 @@ def api_status():
     })
 
 
+@app.route("/api/history")
+def api_history():
+    return jsonify(persist_stats.get_history())
+
+
 @app.route("/api/networks/saved")
 def api_saved():
     try:

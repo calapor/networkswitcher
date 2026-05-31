@@ -30,6 +30,9 @@ _week_key = None;   _week_anchor_rx = 0;   _week_anchor_tx = 0
 _month_key = None;  _month_anchor_rx = 0;  _month_anchor_tx = 0
 _year_key = None;   _year_anchor_rx = 0;   _year_anchor_tx = 0
 
+# Historical completed-period totals — guarded by _lock
+_history: dict = {"weeks": {}, "months": {}, "years": {}}
+
 
 def _current_period_keys():
     today = datetime.date.today()
@@ -61,6 +64,10 @@ def _load():
         _year_key       = pa.get("year_key")
         _year_anchor_rx = int(pa.get("year_rx", 0))
         _year_anchor_tx = int(pa.get("year_tx", 0))
+        hist = data.get("history", {})
+        _history["weeks"]  = hist.get("weeks", {})
+        _history["months"] = hist.get("months", {})
+        _history["years"]  = hist.get("years", {})
     except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError):
         pass  # first run: defaults stay
 
@@ -84,6 +91,11 @@ def _save_locked():
                         "year_rx": _year_anchor_rx,
                         "year_tx": _year_anchor_tx,
                     },
+                    "history": {
+                        "weeks":  _history["weeks"],
+                        "months": _history["months"],
+                        "years":  _history["years"],
+                    },
                 },
                 f,
             )
@@ -98,10 +110,16 @@ def _refresh_anchors_locked(total_rx, total_tx):
     global _year_key, _year_anchor_rx, _year_anchor_tx
     wk, mk, yk = _current_period_keys()
     if _week_key != wk:
+        if _week_key is not None:
+            _history["weeks"][_week_key] = {"rx": total_rx - _week_anchor_rx, "tx": total_tx - _week_anchor_tx}
         _week_key, _week_anchor_rx, _week_anchor_tx = wk, total_rx, total_tx
     if _month_key != mk:
+        if _month_key is not None:
+            _history["months"][_month_key] = {"rx": total_rx - _month_anchor_rx, "tx": total_tx - _month_anchor_tx}
         _month_key, _month_anchor_rx, _month_anchor_tx = mk, total_rx, total_tx
     if _year_key != yk:
+        if _year_key is not None:
+            _history["years"][_year_key] = {"rx": total_rx - _year_anchor_rx, "tx": total_tx - _year_anchor_tx}
         _year_key, _year_anchor_rx, _year_anchor_tx = yk, total_rx, total_tx
 
 
@@ -169,3 +187,19 @@ def period_totals():
             total_rx - _month_anchor_rx, total_tx - _month_anchor_tx,
             total_rx - _year_anchor_rx,  total_tx - _year_anchor_tx,
         )
+
+
+def get_history():
+    """Return completed and in-progress period totals for charting."""
+    with _lock:
+        total_rx = _stored_rx + _session_rx
+        total_tx = _stored_tx + _session_tx
+        wk, mk, yk = _current_period_keys()
+        return {
+            "weeks":  {**_history["weeks"],
+                       wk: {"rx": total_rx - _week_anchor_rx,  "tx": total_tx - _week_anchor_tx,  "current": True}},
+            "months": {**_history["months"],
+                       mk: {"rx": total_rx - _month_anchor_rx, "tx": total_tx - _month_anchor_tx, "current": True}},
+            "years":  {**_history["years"],
+                       yk: {"rx": total_rx - _year_anchor_rx,  "tx": total_tx - _year_anchor_tx,  "current": True}},
+        }

@@ -258,8 +258,84 @@ async function doAdd(ev) {
   }
 }
 
+// --- history chart ----------------------------------------------------------
+
+let _historyChart = null;
+let _activePeriod = "weeks";
+let _historyData = null;
+
+function weekLabel(key) {
+    const [year, week] = key.split("-W").map(Number);
+    const jan4 = new Date(year, 0, 4);
+    const dow = jan4.getDay() || 7;
+    const mon = new Date(jan4);
+    mon.setDate(jan4.getDate() - dow + 1 + (week - 1) * 7);
+    return mon.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function monthLabel(key) {
+    const [year, month] = key.split("-").map(Number);
+    return new Date(year, month - 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+}
+
+function renderHistoryChart(data, period) {
+    const entries = Object.entries(data[period]).sort(([a], [b]) => a.localeCompare(b));
+    const labels = entries.map(([k]) =>
+        period === "weeks" ? weekLabel(k) : period === "months" ? monthLabel(k) : k
+    );
+    const isCurrent = entries.map(([, v]) => !!v.current);
+    const rxData = entries.map(([, v]) => v.rx);
+    const txData = entries.map(([, v]) => v.tx);
+    const rxColors = isCurrent.map(c => c ? "#4f8cffbb" : "#4f8cff66");
+    const txColors = isCurrent.map(c => c ? "#34c759bb" : "#34c75966");
+
+    const ctx = $("history-chart").getContext("2d");
+    if (_historyChart) { _historyChart.destroy(); _historyChart = null; }
+    _historyChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [
+                { label: "In (↓)", data: rxData, backgroundColor: rxColors, borderColor: "#4f8cff", borderWidth: 1 },
+                { label: "Out (↑)", data: txData, backgroundColor: txColors, borderColor: "#34c759", borderWidth: 1 },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { labels: { color: "#e8eaed", boxWidth: 12, font: { size: 11 } } },
+                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtBytes(c.raw)}` } },
+            },
+            scales: {
+                x: { ticks: { color: "#9aa0a6", font: { size: 11 } }, grid: { color: "#272b3455" } },
+                y: {
+                    ticks: { color: "#9aa0a6", font: { size: 11 }, callback: (v) => fmtBytes(v) },
+                    grid: { color: "#272b3455" },
+                },
+            },
+        },
+    });
+}
+
+async function loadHistory() {
+    try {
+        _historyData = await getJSON("/api/history");
+        renderHistoryChart(_historyData, _activePeriod);
+    } catch (e) { /* ignore — chart stays blank */ }
+}
+
+function switchTab(period) {
+    _activePeriod = period;
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.period === period));
+    if (_historyData) renderHistoryChart(_historyData, period);
+}
+
 // --- init -------------------------------------------------------------------
 
 $("scan-btn").addEventListener("click", doScan);
 $("add-form").addEventListener("submit", doAdd);
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
 refreshStatus();
+loadHistory();
+setInterval(loadHistory, 300000);
