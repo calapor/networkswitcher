@@ -91,6 +91,7 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 }
 .tab:hover { border-color: var(--accent); color: var(--fg); }
 .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.metric-bar { margin-top: 12px; }
 .chart-wrap { position: relative; height: 200px; margin-top: 16px; }
 
 footer { margin-top: 24px; text-align: center; color: var(--muted); }
