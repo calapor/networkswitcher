@@ -56,12 +56,6 @@ function renderStatus(s) {
   $("cur-tx").textContent = s.error ? "—" : fmtBytes(s.tx_bytes);
   $("all-rx").textContent   = s.error ? "—" : fmtBytes(s.all_time_rx_bytes);
   $("all-tx").textContent   = s.error ? "—" : fmtBytes(s.all_time_tx_bytes);
-  $("week-rx").textContent  = s.error ? "—" : fmtBytes(s.week_rx_bytes);
-  $("week-tx").textContent  = s.error ? "—" : fmtBytes(s.week_tx_bytes);
-  $("month-rx").textContent = s.error ? "—" : fmtBytes(s.month_rx_bytes);
-  $("month-tx").textContent = s.error ? "—" : fmtBytes(s.month_tx_bytes);
-  $("year-rx").textContent  = s.error ? "—" : fmtBytes(s.year_rx_bytes);
-  $("year-tx").textContent  = s.error ? "—" : fmtBytes(s.year_tx_bytes);
 
   const banner = $("action-banner");
   // A "failed" verdict can go stale: a slow AP may associate just after the
@@ -262,11 +256,7 @@ async function doAdd(ev) {
 
 let _historyChart = null;
 let _activeView = "week";
-let _activeMetric = "total";
 let _historyData = null;
-
-// Pick the bytes for the active metric: download, upload, or both.
-const metricVal = (v) => _activeMetric === "in" ? v.rx : _activeMetric === "out" ? v.tx : v.rx + v.tx;
 
 function dayLabel(key) {
     const [y, m, d] = key.split("-").map(Number);
@@ -295,7 +285,7 @@ const VIEWS = {
     year:  { source: "months", max: 12, label: monthLabel },
 };
 
-// Line colours for per-network series; "All networks" uses the foreground.
+// Per-network colours; download uses the solid hue, upload a translucent one.
 const NET_COLORS = ["#4f8cff", "#34c759", "#ff9f0a", "#bf5af2", "#5ac8fa", "#ff453a", "#ffd60a", "#ff6482"];
 const COMMON_OPTS = {
     responsive: true,
@@ -312,6 +302,13 @@ const COMMON_OPTS = {
         },
     },
 };
+const STACKED_OPTS = {
+    ...COMMON_OPTS,
+    scales: {
+        x: { ...COMMON_OPTS.scales.x, stacked: true },
+        y: { ...COMMON_OPTS.scales.y, stacked: true },
+    },
+};
 
 function drawChart(config) {
     const ctx = $("history-chart").getContext("2d");
@@ -325,8 +322,10 @@ function networksByUsage(data) {
     return Object.keys(n).sort((a, b) => (n[b].rx + n[b].tx) - (n[a].rx + n[a].tx));
 }
 
-// Time view: one line per network (total in+out per bucket) plus an "All" line.
-function renderPeriodLines(data, view) {
+// Time view: one stacked bar per bucket, split into each network's in/out.
+// The full bar height is the period total; segments show the per-network and
+// download/upload breakdown.
+function renderPeriodStacks(data, view) {
     const cfg = VIEWS[view];
     const nh = data.networks_history || {};
     const nets = networksByUsage(data);
@@ -336,17 +335,21 @@ function renderPeriodLines(data, view) {
     const keys = [...keySet].sort().slice(-cfg.max);
     const labels = keys.map(cfg.label);
 
-    const lineFor = (dict, color, label, width) => ({
-        label, borderColor: color, backgroundColor: color,
-        data: keys.map(k => { const v = dict[k]; return v ? metricVal(v) : 0; }),
-        borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
+    const datasets = [];
+    nets.forEach((n, i) => {
+        const dict = (nh[n] || {})[cfg.source] || {};
+        const color = NET_COLORS[i % NET_COLORS.length];
+        datasets.push({
+            label: `${n} ↓`, stack: "t", backgroundColor: color,
+            data: keys.map(k => dict[k] ? dict[k].rx : 0),
+        });
+        datasets.push({
+            label: `${n} ↑`, stack: "t", backgroundColor: color + "66",
+            data: keys.map(k => dict[k] ? dict[k].tx : 0),
+        });
     });
 
-    const datasets = [lineFor(data[cfg.source] || {}, "#e8eaed", "All networks", 3)];
-    nets.forEach((n, i) =>
-        datasets.push(lineFor((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2)));
-
-    drawChart({ type: "line", data: { labels, datasets }, options: COMMON_OPTS });
+    drawChart({ type: "bar", data: { labels, datasets }, options: STACKED_OPTS });
 }
 
 // "By network" view: all-time in/out comparison, one pair of bars per network.
@@ -368,7 +371,7 @@ function renderNetworkBars(data) {
 
 function renderHistoryChart(data, view) {
     if (view === "network") renderNetworkBars(data);
-    else renderPeriodLines(data, view);
+    else renderPeriodStacks(data, view);
 }
 
 async function loadHistory() {
@@ -381,16 +384,7 @@ async function loadHistory() {
 function switchTab(view) {
     _activeView = view;
     document.querySelectorAll(".tab[data-period]").forEach(t => t.classList.toggle("active", t.dataset.period === view));
-    // the In/Out/Total toggle only applies to the per-network line views;
-    // the "By network" tab already shows both directions.
-    $("metric-bar").classList.toggle("hidden", view === "network");
     if (_historyData) renderHistoryChart(_historyData, view);
-}
-
-function switchMetric(metric) {
-    _activeMetric = metric;
-    document.querySelectorAll(".tab[data-metric]").forEach(t => t.classList.toggle("active", t.dataset.metric === metric));
-    if (_historyData) renderHistoryChart(_historyData, _activeView);
 }
 
 // --- init -------------------------------------------------------------------
@@ -398,7 +392,6 @@ function switchMetric(metric) {
 $("scan-btn").addEventListener("click", doScan);
 $("add-form").addEventListener("submit", doAdd);
 document.querySelectorAll(".tab[data-period]").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
-document.querySelectorAll(".tab[data-metric]").forEach(t => t.addEventListener("click", () => switchMetric(t.dataset.metric)));
 refreshStatus();
 loadHistory();
 setInterval(loadHistory, 300000);
