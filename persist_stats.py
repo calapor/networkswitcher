@@ -41,6 +41,19 @@ _history: dict = {"days": {}, "weeks": {}, "months": {}, "years": {}}
 _by_ssid: dict = {}
 _by_ssid_seeded = False
 
+# Per-SSID period anchors and completed-period history — guarded by _lock.
+# Mirrors the global day/week/month/year tracking but keyed per network, so
+# each network gets its own week/month/year breakdown for the line chart.
+_ssid_anchors: dict = {}     # {ssid: {"day_key": .., "day_rx": .., ...}}
+_history_by_ssid: dict = {}  # {ssid: {"days": {}, "weeks": {}, "months": {}, "years": {}}}
+
+# (history-key, anchor-field-prefix) for each period unit.
+_PERIOD_UNITS = (("days", "day"), ("weeks", "week"), ("months", "month"), ("years", "year"))
+
+
+def _empty_history():
+    return {"days": {}, "weeks": {}, "months": {}, "years": {}}
+
 
 def _current_period_keys():
     today = datetime.date.today()
@@ -53,8 +66,54 @@ def _current_period_keys():
     )
 
 
+def _init_ssid_anchors(ssid, rx, tx):
+    """Start an SSID's period anchors at (rx, tx) for the current periods.
+
+    Pass the network's existing cumulative for the seed network (so its
+    historical usage isn't dated into the current week), or 0 for a genuinely
+    new network (so its just-seen traffic counts in the current period)."""
+    a = {}
+    for (hk, unit), key in zip(_PERIOD_UNITS, _current_period_keys()):
+        a[unit + "_key"], a[unit + "_rx"], a[unit + "_tx"] = key, rx, tx
+    _ssid_anchors[ssid] = a
+    _history_by_ssid.setdefault(ssid, _empty_history())
+
+
+def _refresh_period_anchors(anchors, history, total_rx, total_tx):
+    """Advance an SSID's day/week/month/year anchors, recording completed
+    buckets into `history`. Both are plain dicts (per-SSID state)."""
+    keys = _current_period_keys()
+    for (hk, unit), key in zip(_PERIOD_UNITS, keys):
+        if anchors.get(unit + "_key") != key:
+            if anchors.get(unit + "_key") is not None:
+                history[hk][anchors[unit + "_key"]] = {
+                    "rx": total_rx - anchors.get(unit + "_rx", 0),
+                    "tx": total_tx - anchors.get(unit + "_tx", 0),
+                }
+            anchors[unit + "_key"] = key
+            anchors[unit + "_rx"] = total_rx
+            anchors[unit + "_tx"] = total_tx
+
+
+def _period_with_current(anchors, history, total_rx, total_tx):
+    """Return an SSID's history dict with the in-progress period appended."""
+    keys = _current_period_keys()
+    out = {}
+    for (hk, unit), key in zip(_PERIOD_UNITS, keys):
+        if anchors.get(unit + "_key") == key:
+            cur = {"rx": total_rx - anchors.get(unit + "_rx", 0),
+                   "tx": total_tx - anchors.get(unit + "_tx", 0), "current": True}
+        else:
+            # boundary passed but not yet rolled over by an update; nothing
+            # has accumulated for this network in the new period yet.
+            cur = {"rx": 0, "tx": 0, "current": True}
+        out[hk] = {**history.get(hk, {}), key: cur}
+    return out
+
+
 def _load():
     global _stored_rx, _stored_tx, _by_ssid, _by_ssid_seeded
+    global _ssid_anchors, _history_by_ssid
     global _day_key, _day_anchor_rx, _day_anchor_tx
     global _week_key, _week_anchor_rx, _week_anchor_tx
     global _month_key, _month_anchor_rx, _month_anchor_tx
@@ -85,6 +144,10 @@ def _load():
         if "by_ssid" in data:
             _by_ssid = dict(data["by_ssid"])
             _by_ssid_seeded = True
+        _ssid_anchors = dict(data.get("ssid_anchors", {}))
+        _history_by_ssid = {
+            s: {**_empty_history(), **h} for s, h in data.get("history_by_ssid", {}).items()
+        }
     except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError):
         pass  # first run: defaults stay
 
@@ -118,6 +181,8 @@ def _save_locked():
                         "years":  _history["years"],
                     },
                     "by_ssid": _by_ssid,
+                    "ssid_anchors": _ssid_anchors,
+                    "history_by_ssid": _history_by_ssid,
                 },
                 f,
             )
@@ -212,13 +277,29 @@ def update(kernel_rx, kernel_tx, ssid=None):
         if ssid:
             if not _by_ssid_seeded:
                 # First run with this feature: attribute all existing usage to
-                # whatever network is connected right now.
+                # whatever network is connected right now, but don't date that
+                # historical lump into the current week/month/year.
                 _by_ssid[ssid] = {"rx": total_rx, "tx": total_tx}
                 _by_ssid_seeded = True
+                _init_ssid_anchors(ssid, total_rx, total_tx)
+            elif ssid not in _by_ssid:
+                # New network: count its traffic from zero so this cycle lands
+                # in the current period.
+                _by_ssid[ssid] = {"rx": delta_rx, "tx": delta_tx}
+                _init_ssid_anchors(ssid, 0, 0)
             else:
-                b = _by_ssid.setdefault(ssid, {"rx": 0, "tx": 0})
+                b = _by_ssid[ssid]
                 b["rx"] += delta_rx
                 b["tx"] += delta_tx
+
+        # Roll period anchors for every known network each cycle so idle
+        # networks still close out their week/month/year on the calendar
+        # boundary (their unchanged total records a correct, possibly-zero
+        # bucket) rather than only when next connected.
+        for s, b in _by_ssid.items():
+            anchors = _ssid_anchors.setdefault(s, {})
+            hist = _history_by_ssid.setdefault(s, _empty_history())
+            _refresh_period_anchors(anchors, hist, b["rx"], b["tx"])
 
         return total_rx, total_tx
 
@@ -251,4 +332,12 @@ def get_history():
             "years":  {**_history["years"],
                        yk: {"rx": total_rx - _year_anchor_rx,  "tx": total_tx - _year_anchor_tx,  "current": True}},
             "networks": {s: dict(v) for s, v in _by_ssid.items()},
+            "networks_history": {
+                s: _period_with_current(
+                    _ssid_anchors.get(s, {}),
+                    _history_by_ssid.get(s, _empty_history()),
+                    b["rx"], b["tx"],
+                )
+                for s, b in _by_ssid.items()
+            },
         }
