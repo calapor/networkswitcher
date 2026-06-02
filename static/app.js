@@ -311,20 +311,31 @@ const STACKED_OPTS = {
 };
 
 // Period lines plot two lines per network (solid = out, dashed = in) sharing
-// the network's colour, so the legend only needs to explain the dash style.
+// the network's colour. The legend names each network in its colour, then
+// explains the dash style in neutral grey.
 const DATA_IN_DASH = [5, 4];
 const PERIOD_OPTS = {
     ...COMMON_OPTS,
     plugins: {
         ...COMMON_OPTS.plugins,
         legend: {
-            onClick: () => {},  // informational style key, not per-series toggles
+            onClick: () => {},  // informational legend, not per-series toggles
             labels: {
                 color: "#e8eaed", boxWidth: 28, font: { size: 11 }, usePointStyle: true,
-                generateLabels: () => [
-                    { text: "Data Out", pointStyle: "line", strokeStyle: "#e8eaed", lineWidth: 2, lineDash: [], fontColor: "#e8eaed" },
-                    { text: "Data In", pointStyle: "line", strokeStyle: "#e8eaed", lineWidth: 2, lineDash: DATA_IN_DASH, fontColor: "#e8eaed" },
-                ],
+                generateLabels: (chart) => {
+                    // one coloured key per network (from each solid "out" line)…
+                    const nets = chart.data.datasets
+                        .filter(ds => ds.label.endsWith(" out"))
+                        .map(ds => ({
+                            text: ds.label.slice(0, -4), pointStyle: "line",
+                            strokeStyle: ds.borderColor, lineWidth: 2, lineDash: [], fontColor: "#e8eaed",
+                        }));
+                    // …then the dash-style explanation in neutral grey.
+                    return nets.concat([
+                        { text: "Data Out", pointStyle: "line", strokeStyle: "#9aa0a6", lineWidth: 2, lineDash: [], fontColor: "#9aa0a6" },
+                        { text: "Data In", pointStyle: "line", strokeStyle: "#9aa0a6", lineWidth: 2, lineDash: DATA_IN_DASH, fontColor: "#9aa0a6" },
+                    ]);
+                },
             },
         },
     },
@@ -377,7 +388,9 @@ function renderPeriodLines(data, view) {
         datasets.push(lineFor(dict, color, `${name} out`, width, "tx", []));
         datasets.push(lineFor(dict, color, `${name} in`, width, "rx", DATA_IN_DASH));
     };
-    pushPair(allNet, "#e8eaed", "All networks", 3);
+    // "All networks" is redundant when there is only one network (it would just
+    // overlap that network's lines), so only add it once there are several.
+    if (nets.length > 1) pushPair(allNet, "#e8eaed", "All networks", 3);
     nets.forEach((n, i) => pushPair((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2));
 
     drawChart({ type: "line", data: { labels, datasets }, options: PERIOD_OPTS });
