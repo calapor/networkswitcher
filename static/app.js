@@ -372,9 +372,13 @@ function renderPeriodLines(data, view) {
         }
     });
 
-    const datasets = [lineFor(allNet, "#e8eaed", "All networks", 3)];
-    nets.forEach((n, i) =>
-        datasets.push(lineFor((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2)));
+    const datasets = [];
+    const pushPair = (dict, color, name, width) => {
+        datasets.push(lineFor(dict, color, `${name} out`, width, "tx", []));
+        datasets.push(lineFor(dict, color, `${name} in`, width, "rx", DATA_IN_DASH));
+    };
+    pushPair(allNet, "#e8eaed", "All networks", 3);
+    nets.forEach((n, i) => pushPair((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2));
 
     drawChart({ type: "line", data: { labels, datasets }, options: PERIOD_OPTS });
 }
