@@ -310,6 +310,26 @@ const STACKED_OPTS = {
     },
 };
 
+// Period lines plot two lines per network (solid = out, dashed = in) sharing
+// the network's colour, so the legend only needs to explain the dash style.
+const DATA_IN_DASH = [5, 4];
+const PERIOD_OPTS = {
+    ...COMMON_OPTS,
+    plugins: {
+        ...COMMON_OPTS.plugins,
+        legend: {
+            onClick: () => {},  // informational style key, not per-series toggles
+            labels: {
+                color: "#e8eaed", boxWidth: 28, font: { size: 11 }, usePointStyle: true,
+                generateLabels: () => [
+                    { text: "Data Out", pointStyle: "line", strokeStyle: "#e8eaed", lineWidth: 2, lineDash: [], fontColor: "#e8eaed" },
+                    { text: "Data In", pointStyle: "line", strokeStyle: "#e8eaed", lineWidth: 2, lineDash: DATA_IN_DASH, fontColor: "#e8eaed" },
+                ],
+            },
+        },
+    },
+};
+
 function drawChart(config) {
     const ctx = $("history-chart").getContext("2d");
     if (_historyChart) { _historyChart.destroy(); _historyChart = null; }
@@ -322,7 +342,8 @@ function networksByUsage(data) {
     return Object.keys(n).sort((a, b) => (n[b].rx + n[b].tx) - (n[a].rx + n[a].tx));
 }
 
-// Time view: one line per network (total in+out per bucket) plus an "All" line.
+// Time view: two lines per network — solid for data out, dashed for data in,
+// sharing the network's colour — plus an "All networks" pair.
 function renderPeriodLines(data, view) {
     const cfg = VIEWS[view];
     const nh = data.networks_history || {};
@@ -333,9 +354,9 @@ function renderPeriodLines(data, view) {
     const keys = [...keySet].sort().slice(-cfg.max);
     const labels = keys.map(cfg.label);
 
-    const lineFor = (dict, color, label, width) => ({
-        label, borderColor: color, backgroundColor: color,
-        data: keys.map(k => { const v = dict[k]; return v ? v.rx + v.tx : 0; }),
+    const lineFor = (dict, color, label, width, metric, dash) => ({
+        label, borderColor: color, backgroundColor: color, borderDash: dash,
+        data: keys.map(k => { const v = dict[k]; return v ? v[metric] : 0; }),
         borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
     });
 
@@ -351,11 +372,15 @@ function renderPeriodLines(data, view) {
         }
     });
 
-    const datasets = [lineFor(allNet, "#e8eaed", "All networks", 3)];
-    nets.forEach((n, i) =>
-        datasets.push(lineFor((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2)));
+    const datasets = [];
+    const pushPair = (dict, color, name, width) => {
+        datasets.push(lineFor(dict, color, `${name} out`, width, "tx", []));
+        datasets.push(lineFor(dict, color, `${name} in`, width, "rx", DATA_IN_DASH));
+    };
+    pushPair(allNet, "#e8eaed", "All networks", 3);
+    nets.forEach((n, i) => pushPair((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2));
 
-    drawChart({ type: "line", data: { labels, datasets }, options: COMMON_OPTS });
+    drawChart({ type: "line", data: { labels, datasets }, options: PERIOD_OPTS });
 }
 
 // "By network" view: all-time total per network as one stacked bar,
