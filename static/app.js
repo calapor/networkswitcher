@@ -328,7 +328,7 @@ function renderPeriodLines(data, view) {
     const nh = data.networks_history || {};
     const nets = networksByUsage(data);
 
-    const keySet = new Set(Object.keys(data[cfg.source] || {}));
+    const keySet = new Set();
     nets.forEach(n => Object.keys((nh[n] || {})[cfg.source] || {}).forEach(k => keySet.add(k)));
     const keys = [...keySet].sort().slice(-cfg.max);
     const labels = keys.map(cfg.label);
@@ -339,7 +339,19 @@ function renderPeriodLines(data, view) {
         borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
     });
 
-    const datasets = [lineFor(data[cfg.source] || {}, "#e8eaed", "All networks", 3)];
+    // "All networks" is the sum of the per-network buckets, so it always equals
+    // the lines below it rather than a separately-tracked interface counter.
+    const allNet = {};
+    nets.forEach(n => {
+        const src = (nh[n] || {})[cfg.source] || {};
+        for (const k in src) {
+            (allNet[k] ||= { rx: 0, tx: 0 });
+            allNet[k].rx += src[k].rx;
+            allNet[k].tx += src[k].tx;
+        }
+    });
+
+    const datasets = [lineFor(allNet, "#e8eaed", "All networks", 3)];
     nets.forEach((n, i) =>
         datasets.push(lineFor((nh[n] || {})[cfg.source] || {}, NET_COLORS[i % NET_COLORS.length], n, 2)));
 
