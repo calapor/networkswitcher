@@ -40,6 +40,7 @@ _history: dict = {"days": {}, "weeks": {}, "months": {}, "years": {}}
 # feature the connected network is seeded with all existing all-time usage.
 _by_ssid: dict = {}
 _by_ssid_seeded = False
+_last_ssid = None  # most recent non-empty SSID, used to attribute null-SSID traffic
 
 # Per-SSID period anchors and completed-period history — guarded by _lock.
 # Mirrors the global day/week/month/year tracking but keyed per network, so
@@ -246,7 +247,7 @@ def update(kernel_rx, kernel_tx, ssid=None):
     ``ssid`` is given, this cycle's traffic is credited to that network.
     """
     global _session_rx, _session_tx, _last_kernel_rx, _last_kernel_tx, _stored_rx, _stored_tx
-    global _by_ssid_seeded
+    global _by_ssid_seeded, _last_ssid
     with _lock:
         delta_rx = delta_tx = 0
         if kernel_rx is not None and _last_kernel_rx is not None:
@@ -274,23 +275,30 @@ def update(kernel_rx, kernel_tx, ssid=None):
         total_tx = _stored_tx + _session_tx
         _refresh_anchors_locked(total_rx, total_tx)
 
-        if ssid:
+        # Credit this cycle's traffic to the connected network. When the SSID
+        # is briefly unknown (disconnect blips, probe gaps, reconnects) fall
+        # back to the last network seen so interface bytes are never dropped on
+        # the floor — otherwise they'd inflate "all networks" with no owner.
+        effective_ssid = ssid or _last_ssid
+        if effective_ssid:
             if not _by_ssid_seeded:
                 # First run with this feature: attribute all existing usage to
                 # whatever network is connected right now, but don't date that
                 # historical lump into the current week/month/year.
-                _by_ssid[ssid] = {"rx": total_rx, "tx": total_tx}
+                _by_ssid[effective_ssid] = {"rx": total_rx, "tx": total_tx}
                 _by_ssid_seeded = True
-                _init_ssid_anchors(ssid, total_rx, total_tx)
-            elif ssid not in _by_ssid:
+                _init_ssid_anchors(effective_ssid, total_rx, total_tx)
+            elif effective_ssid not in _by_ssid:
                 # New network: count its traffic from zero so this cycle lands
                 # in the current period.
-                _by_ssid[ssid] = {"rx": delta_rx, "tx": delta_tx}
-                _init_ssid_anchors(ssid, 0, 0)
+                _by_ssid[effective_ssid] = {"rx": delta_rx, "tx": delta_tx}
+                _init_ssid_anchors(effective_ssid, 0, 0)
             else:
-                b = _by_ssid[ssid]
+                b = _by_ssid[effective_ssid]
                 b["rx"] += delta_rx
                 b["tx"] += delta_tx
+        if ssid:
+            _last_ssid = ssid
 
         # Roll period anchors for every known network each cycle so idle
         # networks still close out their week/month/year on the calendar
