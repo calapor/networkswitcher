@@ -367,7 +367,7 @@ function renderPeriodLines(data, view) {
 
     const lineFor = (dict, color, label, width, metric, dash) => ({
         label, borderColor: color, backgroundColor: color, borderDash: dash,
-        data: keys.map(k => { const v = dict[k]; return v ? v[metric] : 0; }),
+        data: keys.map(k => { const v = dict[k]; return v ? v[metric] : null; }),
         borderWidth: width, pointRadius: 2, tension: 0.25, fill: false,
     });
 
