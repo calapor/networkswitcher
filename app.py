@@ -8,9 +8,10 @@ immediately and the page polls /api/status for progress.
 import threading
 import time
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import config
+import diag
 import net
 import persist_stats
 import wifi
@@ -133,6 +134,14 @@ def api_status():
 @app.route("/api/history")
 def api_history():
     return jsonify(persist_stats.get_history())
+
+
+@app.route("/api/debug")
+def api_debug():
+    """Plain-text diagnostics bundle. Served on eth0 (like the whole panel), so
+    it stays reachable even when wlan0 / the supplicant is down — the UI links
+    here on error so the report can be pasted for help. Contains no PSKs."""
+    return Response(diag.report(), mimetype="text/plain; charset=utf-8")
 
 
 @app.route("/api/networks/saved")

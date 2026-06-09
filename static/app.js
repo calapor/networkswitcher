@@ -29,14 +29,20 @@ function fmtBytes(n) {
   return `${n.toFixed(i < 2 ? 0 : 1)} ${units[i]}`;
 }
 
+// Inline "Open diagnostics →" link to /api/debug, returned as markup so it can
+// be dropped into the various error messages that should route the user there.
+const DIAG_LINK = '<a href="/api/debug" target="_blank" rel="noopener">Open diagnostics →</a>';
+
 function renderStatus(s) {
   const dot = $("dot");
   const text = $("status-text");
   const action = s.action || {};
+  let trouble = false;  // show the diagnostics call-to-action?
 
   if (s.error) {
     dot.className = "dot bad";
     text.textContent = "wpa_supplicant not reachable";
+    trouble = true;
   } else if (s.internet) {
     dot.className = "dot ok";
     text.textContent = "Connected — internet OK";
@@ -46,6 +52,18 @@ function renderStatus(s) {
   } else {
     dot.className = "dot bad";
     text.textContent = "Not connected to upstream WiFi";
+    trouble = true;
+  }
+
+  // When the link is broken, point the user straight at the diagnostics bundle
+  // (it lives on the wired side, so it loads even now). Stay quiet while a
+  // switch is mid-flight — the action banner already explains what's happening.
+  const hint = $("diag-hint");
+  if (trouble && !action.busy) {
+    hint.innerHTML = `Something's wrong with the WiFi link. ${DIAG_LINK} and paste the page to get help.`;
+    hint.classList.remove("hidden");
+  } else {
+    hint.classList.add("hidden");
   }
 
   $("cur-ssid").textContent = s.ssid || (s.error ? "—" : "(none)");
@@ -149,7 +167,7 @@ async function loadSaved() {
       ul.appendChild(li);
     }
   } catch (e) {
-    ul.innerHTML = `<li class="muted">Could not load: ${e.message}</li>`;
+    ul.innerHTML = `<li class="muted">Could not load: ${e.message} — ${DIAG_LINK}</li>`;
   }
 }
 
@@ -224,7 +242,7 @@ async function doScan() {
       ul.appendChild(li);
     }
   } catch (e) {
-    ul.innerHTML = `<li class="muted">Scan failed: ${e.message}</li>`;
+    ul.innerHTML = `<li class="muted">Scan failed: ${e.message} — ${DIAG_LINK}</li>`;
   } finally {
     btn.disabled = false;
     btn.textContent = "Scan";
