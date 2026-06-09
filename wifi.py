@@ -179,6 +179,52 @@ def enable_all():
         _wpa("enable_network", str(net["id"]))
 
 
+def save_config():
+    """Persist the in-memory network config (priorities, enabled flags, ...) to
+    the wpa_supplicant config file. Requires update_config=1 in the conf."""
+    _ok(_wpa("save_config"))
+
+
+def current_nid():
+    """Network id of the currently-connected ([CURRENT]) saved network, or None."""
+    for net in list_networks():
+        if net["current"]:
+            return net["id"]
+    return None
+
+
+def apply_policy(order_ssids, mode, auto_connect):
+    """Push the auto-connect policy down into wpa_supplicant and persist it.
+
+    `order_ssids` is the user's preference ranking (most-preferred first).
+
+    - priority: in "order" mode each network gets a distinct descending priority
+      matching its rank (top of the list = highest); in "signal" mode all
+      priorities are 0 so wpa_supplicant simply picks the strongest AP in range.
+    - enable/disable: when auto_connect is on, every saved network is enabled so
+      wpa_supplicant can associate/roam on its own. When off, only the currently
+      connected network stays enabled (the rest are disabled) so the bridge will
+      not auto-join anything — connections become manual-only.
+    """
+    nets = list_networks()
+    rank = {ssid: i for i, ssid in enumerate(order_ssids)}
+    n = len(nets)
+    cur = current_nid()
+    for net in nets:
+        nid = str(net["id"])
+        if mode == "signal":
+            prio = 0
+        else:
+            # unranked (e.g. just-added) networks sort to the bottom
+            prio = n - rank.get(net["ssid"], n)
+        _ok(_wpa("set_network", nid, "priority", str(prio)))
+        if auto_connect or net["id"] == cur:
+            _wpa("enable_network", nid)
+        else:
+            _wpa("disable_network", nid)
+    save_config()
+
+
 def _esc_check(value, field):
     if '"' in value or any(ord(c) < 32 for c in value):
         raise WifiError(f"invalid characters in {field}")
@@ -212,7 +258,7 @@ def add_network(ssid, psk=None, hidden=False):
             _ok(_wpa("set_network", nid, "scan_ssid", "1"))
         _ok(_wpa("enable_network", nid))
         _ok(_wpa("select_network", nid))
-        _ok(_wpa("save_config"))
+        save_config()
     except Exception:
         # roll back a half-created entry so we don't leave junk in the config
         try:
@@ -226,4 +272,4 @@ def add_network(ssid, psk=None, hidden=False):
 def forget(nid):
     """Remove a saved network and persist the change."""
     _ok(_wpa("remove_network", str(nid)))
-    _ok(_wpa("save_config"))
+    save_config()
