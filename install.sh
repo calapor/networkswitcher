@@ -61,8 +61,19 @@ echo "==> Creating virtualenv + installing dependencies"
 if [[ ! -d "$APP_DIR/venv" ]]; then
   python3 -m venv "$APP_DIR/venv"
 fi
-"$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
-"$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
+# pip needs the internet, which is often exactly what's broken when you're
+# (re)running this to fix the upstream link. Don't let an offline pip abort the
+# whole install: if the venv already satisfies requirements, carry on to the
+# service restart; only hard-fail when deps are genuinely missing.
+if "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip \
+   && "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"; then
+  echo "   ok  dependencies installed"
+elif "$APP_DIR/venv/bin/python" -c "import flask" 2>/dev/null; then
+  echo "   ! pip could not reach the network (offline?) — continuing: required deps already present in the venv."
+else
+  echo "   ! pip failed and Flask is not installed in the venv. Re-run install.sh once the Pi has internet." >&2
+  exit 1
+fi
 
 echo "==> Installing systemd service"
 cp "$SRC_DIR/$SERVICE.service" "/etc/systemd/system/$SERVICE.service"
