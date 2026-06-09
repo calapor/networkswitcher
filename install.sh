@@ -19,6 +19,18 @@ if ! command -v wpa_cli >/dev/null; then
   echo "   ! wpa_cli not found. Install with: apt-get install -y wpasupplicant" >&2
   exit 1
 fi
+
+echo "==> Installing wlan0 supplicant launcher + self-healing watchdog"
+for script in wifi-connect.sh wifi-watchdog.sh netdebug.sh; do
+  install -m 0755 "$SRC_DIR/$script" "/usr/local/bin/${script%.sh}"
+done
+for unit in wifi-connect.service wifi-watchdog.service wifi-watchdog.timer; do
+  cp "$SRC_DIR/$unit" "/etc/systemd/system/$unit"
+done
+systemctl daemon-reload
+systemctl enable --now wifi-connect.service
+systemctl enable --now wifi-watchdog.timer
+
 if wpa_cli -i "$IFACE" status >/dev/null 2>&1; then
   echo "   ok  wpa_cli can talk to wpa_supplicant on $IFACE"
 else
@@ -41,7 +53,7 @@ fi
 
 echo "==> Installing files to $APP_DIR"
 mkdir -p "$APP_DIR"
-for item in app.py wifi.py net.py config.py persist_stats.py requirements.txt templates static; do
+for item in app.py wifi.py net.py config.py diag.py persist_stats.py requirements.txt templates static; do
   cp -r "$SRC_DIR/$item" "$APP_DIR/"
 done
 

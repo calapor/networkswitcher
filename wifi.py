@@ -36,14 +36,52 @@ def _ok(out):
         raise WifiError(f"unexpected wpa_cli reply: {out!r}")
 
 
+_SSID_ESCAPES = {"n": 10, "r": 13, "t": 9, "e": 27, "\\": 92, '"': 34}
+
+
+def _unescape_ssid(s):
+    """Decode wpa_cli's printf_encode output back to a normal UTF-8 string.
+
+    wpa_supplicant prints SSID bytes with \\\\, \\", \\n, \\r, \\t, \\e and \\xNN
+    for any byte < 0x20 or >= 0x7f, so non-ASCII names (e.g. "Evanna’s iPhone",
+    where ’ is UTF-8 e2 80 99) arrive as `Evanna\\xe2\\x80\\x99s iPhone`. We must
+    decode per-SSID-field, after tab-splitting the output: a tab inside an SSID
+    is itself escaped as \\t, so decoding a whole line first would corrupt the
+    field boundaries.
+    """
+    out = bytearray()
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == "\\" and i + 1 < n:
+            nxt = s[i + 1]
+            if nxt == "x" and i + 3 < n:
+                try:
+                    out.append(int(s[i + 2:i + 4], 16))
+                    i += 4
+                    continue
+                except ValueError:
+                    pass
+            if nxt in _SSID_ESCAPES:
+                out.append(_SSID_ESCAPES[nxt])
+                i += 2
+                continue
+        out.extend(c.encode("utf-8"))
+        i += 1
+    return out.decode("utf-8", errors="replace")
+
+
 # --- status -----------------------------------------------------------------
 
 def status():
     """Return parsed `wpa_cli status` as a dict (wpa_state, ssid, bssid, ...)."""
     out = _wpa("status")
-    return dict(
+    d = dict(
         line.split("=", 1) for line in out.splitlines() if "=" in line
     )
+    if "ssid" in d:
+        d["ssid"] = _unescape_ssid(d["ssid"])
+    return d
 
 
 # --- saved networks ---------------------------------------------------------
@@ -59,7 +97,7 @@ def list_networks():
         flags = parts[3] if len(parts) > 3 else ""
         nets.append({
             "id": int(parts[0]),
-            "ssid": parts[1],
+            "ssid": _unescape_ssid(parts[1]),
             "bssid": parts[2] if len(parts) > 2 else "",
             "current": "[CURRENT]" in flags,
             "disabled": "[DISABLED]" in flags,
@@ -98,7 +136,7 @@ def scan_results():
         if len(parts) < 5:
             continue
         bssid, _freq, signal, flags, ssid = parts[0], parts[1], parts[2], parts[3], parts[4]
-        ssid = ssid.strip()
+        ssid = _unescape_ssid(ssid).strip()
         if not ssid:
             continue  # hidden / no SSID broadcast
         try:

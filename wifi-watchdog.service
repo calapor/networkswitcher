@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart the wlan0 supplicant launcher if its control socket is gone
+After=wifi-connect.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wifi-watchdog

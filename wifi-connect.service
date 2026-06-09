@@ -1,0 +1,14 @@
+[Unit]
+Description=Wifi upstream link for the bridge (wlan0 supplicant)
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/wifi-connect
+RemainAfterExit=yes
+# The script now exits within a few seconds (it backgrounds its DHCP retry), so
+# this timeout can no longer fire and tear down the supplicant.
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

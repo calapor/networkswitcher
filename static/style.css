@@ -47,6 +47,10 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 .banner .dismiss:hover { opacity: 1; }
 .hidden { display: none; }
 
+.diag-hint { margin: 12px 0 0; font-size: .85rem; color: var(--muted); }
+.diag-hint a { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.list .muted a { color: var(--accent); white-space: nowrap; }
+
 .list { list-style: none; margin: 0; padding: 0; }
 .list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
 .list li:first-child { border-top: none; }
