@@ -44,14 +44,32 @@
     </div>
   </section>
 
+  <section class="card" id="autoconnect-card">
+    <h2>Auto-connect</h2>
+    <label class="switch-row">
+      <input type="checkbox" id="ac-enabled">
+      <span>Auto-connect to a saved network in range</span>
+    </label>
+    <div class="row-between mode-row" id="ac-mode-row">
+      <span class="mode-label">Prefer</span>
+      <div class="toggle" id="ac-mode">
+        <button class="seg" data-mode="order">List order</button>
+        <button class="seg" data-mode="signal">Strongest signal</button>
+      </div>
+    </div>
+    <p class="hint" id="ac-hint">When off, the bridge stays on its current
+      network and never switches on its own — connect manually below.</p>
+  </section>
+
   <section class="card">
     <div class="row-between">
       <h2>Saved networks</h2>
       <label class="delay">Delay (s)
         <input type="number" id="switch-delay" min="0" max="120" value="0"></label>
     </div>
-    <p class="hint">Set a delay, press Connect, then enable a phone hotspot — the
-      bridge switches after the countdown.</p>
+    <p class="hint">Use ▲▼ to rank them — higher = preferred when auto-connect is
+      on. Set a delay, press Connect, then enable a phone hotspot to switch after
+      the countdown.</p>
     <ul id="saved" class="list"><li class="muted">Loading…</li></ul>
   </section>
 

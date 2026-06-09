@@ -4,3 +4,4 @@ venv/
 .venv/
 .context/
 stats.json
+settings.json

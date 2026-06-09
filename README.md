@@ -118,9 +118,18 @@ If the wrong DHCP client is auto-picked, set `DHCP_CMD` in the service file and
 
 ## Recovery & fallback
 
-- `brambles_d2` should keep the highest `priority` in
-  `wpa_supplicant-wlan0.conf`; after any manual switch the app re-enables all
-  saved networks so `wpa_supplicant` auto-returns to it when it reappears.
+- The **Auto-connect** card controls how the bridge picks a network on its own:
+  - **Auto-connect** checkbox — when on, all saved networks are enabled and
+    `wpa_supplicant` associates/roams to one in range with no manual step; when
+    off, only the current network stays enabled, so the bridge never switches by
+    itself (manual *Connect* only).
+  - **Prefer: List order / Strongest signal** — *List order* gives each saved
+    network a descending `priority` matching the **▲▼ ranking** in *Saved
+    networks* (top = preferred, e.g. keep `brambles_d2` at the top so it's
+    auto-returned to when it reappears); *Strongest signal* flattens priorities
+    so `wpa_supplicant` just takes the strongest AP in range.
+  - These settings are written into `wpa_supplicant-wlan0.conf` via
+    `save_config` (so they survive reboots) and remembered in `settings.json`.
 - If a switch fails (wrong password / out of range) the panel stays up on
   `eth0` — just pick another network.
 

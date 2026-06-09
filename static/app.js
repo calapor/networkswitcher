@@ -119,56 +119,115 @@ async function refreshStatus() {
   try {
     const s = await getJSON("/api/status");
     renderStatus(s);
-    if (!(s.action && s.action.busy)) loadSaved();
+    if (!(s.action && s.action.busy)) loadConfig();
   } catch (e) {
     clearTimeout(pollTimer);
     pollTimer = setTimeout(refreshStatus, 4000);
   }
 }
 
-// --- saved networks ---------------------------------------------------------
+// --- auto-connect config + saved networks -----------------------------------
 
-async function loadSaved() {
+let _savedNets = [];  // saved networks in current preference order (rank first)
+
+// Fetches /api/config (settings + ranked networks) and renders both the
+// auto-connect card and the ordered saved-networks list with ▲▼ controls.
+async function loadConfig() {
   const ul = $("saved");
   try {
-    const nets = await getJSON("/api/networks/saved");
-    if (nets.error) throw new Error(nets.error);
-    if (!nets.length) {
-      ul.innerHTML = '<li class="muted">No saved networks yet.</li>';
-      return;
-    }
-    ul.innerHTML = "";
-    for (const n of nets) {
-      const li = document.createElement("li");
-      const name = document.createElement("span");
-      name.className = "name";
-      name.textContent = n.ssid;
-      li.appendChild(name);
-
-      if (n.current) {
-        const tag = document.createElement("span");
-        tag.className = "tag current";
-        tag.textContent = "● connected";
-        li.appendChild(tag);
-      } else {
-        const connect = document.createElement("button");
-        connect.className = "btn small";
-        connect.textContent = "Connect";
-        connect.onclick = () => doConnect(n.id, connect);
-        li.appendChild(connect);
-      }
-
-      const forget = document.createElement("button");
-      forget.className = "btn small danger";
-      forget.textContent = "Forget";
-      forget.onclick = () => doForget(n.id, n.ssid);
-      li.appendChild(forget);
-
-      ul.appendChild(li);
-    }
+    const cfg = await getJSON("/api/config");
+    if (cfg.error) throw new Error(cfg.error);
+    renderAutoConnect(cfg);
+    _savedNets = cfg.networks || [];
+    renderSaved(_savedNets);
   } catch (e) {
     ul.innerHTML = `<li class="muted">Could not load: ${e.message} — ${DIAG_LINK}</li>`;
   }
+}
+
+function renderAutoConnect(cfg) {
+  $("ac-enabled").checked = !!cfg.auto_connect;
+  document.querySelectorAll("#ac-mode .seg").forEach(b =>
+    b.classList.toggle("active", b.dataset.mode === cfg.mode));
+  // the order/signal toggle only applies while auto-connect is on
+  $("ac-mode-row").classList.toggle("disabled", !cfg.auto_connect);
+}
+
+function renderSaved(nets) {
+  const ul = $("saved");
+  if (!nets.length) {
+    ul.innerHTML = '<li class="muted">No saved networks yet.</li>';
+    return;
+  }
+  ul.innerHTML = "";
+  nets.forEach((n, i) => {
+    const li = document.createElement("li");
+
+    const arrows = document.createElement("span");
+    arrows.className = "arrows";
+    const up = document.createElement("button");
+    up.className = "arrow"; up.textContent = "▲"; up.title = "Move up";
+    up.disabled = i === 0;
+    up.onclick = () => moveNetwork(i, -1);
+    const down = document.createElement("button");
+    down.className = "arrow"; down.textContent = "▼"; down.title = "Move down";
+    down.disabled = i === nets.length - 1;
+    down.onclick = () => moveNetwork(i, 1);
+    arrows.appendChild(up);
+    arrows.appendChild(down);
+    li.appendChild(arrows);
+
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = n.ssid;
+    li.appendChild(name);
+
+    if (n.current) {
+      const tag = document.createElement("span");
+      tag.className = "tag current";
+      tag.textContent = "● connected";
+      li.appendChild(tag);
+    } else {
+      const connect = document.createElement("button");
+      connect.className = "btn small";
+      connect.textContent = "Connect";
+      connect.onclick = () => doConnect(n.id, connect);
+      li.appendChild(connect);
+    }
+
+    const forget = document.createElement("button");
+    forget.className = "btn small danger";
+    forget.textContent = "Forget";
+    forget.onclick = () => doForget(n.id, n.ssid);
+    li.appendChild(forget);
+
+    ul.appendChild(li);
+  });
+}
+
+async function saveConfig(body) {
+  try {
+    await postJSON("/api/config", body);
+    loadConfig();
+  } catch (e) {
+    alert(e.message);
+    loadConfig();  // resync the controls with server state
+  }
+}
+
+// Swap the network at `idx` with its neighbour in `dir` (-1 up / +1 down) and
+// persist the new ranking.
+async function moveNetwork(idx, dir) {
+  const j = idx + dir;
+  if (j < 0 || j >= _savedNets.length) return;
+  const order = _savedNets.map(n => n.id);
+  [order[idx], order[j]] = [order[j], order[idx]];
+  try {
+    await postJSON("/api/networks/order", { order });
+  } catch (e) {
+    alert(e.message);
+  }
+  loadConfig();
 }
 
 async function doConnect(id, btn) {
@@ -187,7 +246,7 @@ async function doForget(id, ssid) {
   if (!confirm(`Forget “${ssid}”?`)) return;
   try {
     await postJSON("/api/forget", { id });
-    loadSaved();
+    loadConfig();
   } catch (e) {
     alert(e.message);
   }
@@ -454,6 +513,12 @@ function switchTab(view) {
 
 $("scan-btn").addEventListener("click", doScan);
 $("add-form").addEventListener("submit", doAdd);
+$("ac-enabled").addEventListener("change", (e) => saveConfig({ auto_connect: e.target.checked }));
+document.querySelectorAll("#ac-mode .seg").forEach(b =>
+  b.addEventListener("click", () => {
+    if (!$("ac-enabled").checked) return;  // toggle is inert while auto-connect is off
+    saveConfig({ mode: b.dataset.mode });
+  }));
 document.querySelectorAll(".tab[data-period]").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
 refreshStatus();
 loadHistory();
