@@ -96,7 +96,10 @@
     when the upstream WiFi is down. &middot;
     <a href="/api/debug" target="_blank" rel="noopener">Diagnostics</a></small></footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js"></script>
+  <!-- Vendored locally (not a CDN): this panel must render even when the
+       upstream WiFi is down, so it can't depend on reaching the internet.
+       defer so a missing/slow asset can never block the page from rendering. -->
+  <script defer src="/static/chart.umd.min.js"></script>
+  <script defer src="/static/app.js"></script>
 </body>
 </html>
