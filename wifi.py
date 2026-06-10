@@ -36,14 +36,52 @@ def _ok(out):
         raise WifiError(f"unexpected wpa_cli reply: {out!r}")
 
 
+_SSID_ESCAPES = {"n": 10, "r": 13, "t": 9, "e": 27, "\\": 92, '"': 34}
+
+
+def _unescape_ssid(s):
+    """Decode wpa_cli's printf_encode output back to a normal UTF-8 string.
+
+    wpa_supplicant prints SSID bytes with \\\\, \\", \\n, \\r, \\t, \\e and \\xNN
+    for any byte < 0x20 or >= 0x7f, so non-ASCII names (e.g. "Evanna’s iPhone",
+    where ’ is UTF-8 e2 80 99) arrive as `Evanna\\xe2\\x80\\x99s iPhone`. We must
+    decode per-SSID-field, after tab-splitting the output: a tab inside an SSID
+    is itself escaped as \\t, so decoding a whole line first would corrupt the
+    field boundaries.
+    """
+    out = bytearray()
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == "\\" and i + 1 < n:
+            nxt = s[i + 1]
+            if nxt == "x" and i + 3 < n:
+                try:
+                    out.append(int(s[i + 2:i + 4], 16))
+                    i += 4
+                    continue
+                except ValueError:
+                    pass
+            if nxt in _SSID_ESCAPES:
+                out.append(_SSID_ESCAPES[nxt])
+                i += 2
+                continue
+        out.extend(c.encode("utf-8"))
+        i += 1
+    return out.decode("utf-8", errors="replace")
+
+
 # --- status -----------------------------------------------------------------
 
 def status():
     """Return parsed `wpa_cli status` as a dict (wpa_state, ssid, bssid, ...)."""
     out = _wpa("status")
-    return dict(
+    d = dict(
         line.split("=", 1) for line in out.splitlines() if "=" in line
     )
+    if "ssid" in d:
+        d["ssid"] = _unescape_ssid(d["ssid"])
+    return d
 
 
 # --- saved networks ---------------------------------------------------------
@@ -59,7 +97,7 @@ def list_networks():
         flags = parts[3] if len(parts) > 3 else ""
         nets.append({
             "id": int(parts[0]),
-            "ssid": parts[1],
+            "ssid": _unescape_ssid(parts[1]),
             "bssid": parts[2] if len(parts) > 2 else "",
             "current": "[CURRENT]" in flags,
             "disabled": "[DISABLED]" in flags,
@@ -98,7 +136,7 @@ def scan_results():
         if len(parts) < 5:
             continue
         bssid, _freq, signal, flags, ssid = parts[0], parts[1], parts[2], parts[3], parts[4]
-        ssid = ssid.strip()
+        ssid = _unescape_ssid(ssid).strip()
         if not ssid:
             continue  # hidden / no SSID broadcast
         try:
@@ -141,6 +179,52 @@ def enable_all():
         _wpa("enable_network", str(net["id"]))
 
 
+def save_config():
+    """Persist the in-memory network config (priorities, enabled flags, ...) to
+    the wpa_supplicant config file. Requires update_config=1 in the conf."""
+    _ok(_wpa("save_config"))
+
+
+def current_nid():
+    """Network id of the currently-connected ([CURRENT]) saved network, or None."""
+    for net in list_networks():
+        if net["current"]:
+            return net["id"]
+    return None
+
+
+def apply_policy(order_ssids, mode, auto_connect):
+    """Push the auto-connect policy down into wpa_supplicant and persist it.
+
+    `order_ssids` is the user's preference ranking (most-preferred first).
+
+    - priority: in "order" mode each network gets a distinct descending priority
+      matching its rank (top of the list = highest); in "signal" mode all
+      priorities are 0 so wpa_supplicant simply picks the strongest AP in range.
+    - enable/disable: when auto_connect is on, every saved network is enabled so
+      wpa_supplicant can associate/roam on its own. When off, only the currently
+      connected network stays enabled (the rest are disabled) so the bridge will
+      not auto-join anything — connections become manual-only.
+    """
+    nets = list_networks()
+    rank = {ssid: i for i, ssid in enumerate(order_ssids)}
+    n = len(nets)
+    cur = current_nid()
+    for net in nets:
+        nid = str(net["id"])
+        if mode == "signal":
+            prio = 0
+        else:
+            # unranked (e.g. just-added) networks sort to the bottom
+            prio = n - rank.get(net["ssid"], n)
+        _ok(_wpa("set_network", nid, "priority", str(prio)))
+        if auto_connect or net["id"] == cur:
+            _wpa("enable_network", nid)
+        else:
+            _wpa("disable_network", nid)
+    save_config()
+
+
 def _esc_check(value, field):
     if '"' in value or any(ord(c) < 32 for c in value):
         raise WifiError(f"invalid characters in {field}")
@@ -174,7 +258,7 @@ def add_network(ssid, psk=None, hidden=False):
             _ok(_wpa("set_network", nid, "scan_ssid", "1"))
         _ok(_wpa("enable_network", nid))
         _ok(_wpa("select_network", nid))
-        _ok(_wpa("save_config"))
+        save_config()
     except Exception:
         # roll back a half-created entry so we don't leave junk in the config
         try:
@@ -188,4 +272,4 @@ def add_network(ssid, psk=None, hidden=False):
 def forget(nid):
     """Remove a saved network and persist the change."""
     _ok(_wpa("remove_network", str(nid)))
-    _ok(_wpa("save_config"))
+    save_config()

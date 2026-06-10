@@ -8,11 +8,13 @@ immediately and the page polls /api/status for progress.
 import threading
 import time
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import config
+import diag
 import net
 import persist_stats
+import settings
 import wifi
 
 app = Flask(__name__)
@@ -26,6 +28,13 @@ _action = {"busy": False, "step": "idle", "error": "", "target": "", "ts": 0}
 
 def _set(**kw):
     _action.update(kw, ts=time.time())
+
+
+def _apply_policy():
+    """Push the current auto-connect settings down into wpa_supplicant."""
+    s = settings.get()
+    order = [n["ssid"] for n in settings.ordered_networks()]
+    wifi.apply_policy(order, s["mode"], s["auto_connect"])
 
 
 def _switch_worker(connect_fn, target_label, delay=0):
@@ -69,10 +78,12 @@ def _switch_worker(connect_fn, target_label, delay=0):
         if not net.iface_ip(config.IFACE):
             raise wifi.WifiError("associated but no IP address was assigned")
 
-        # re-enable the other saved networks so auto-fallback/return still works
+        # re-apply the auto-connect policy: priorities + which networks stay
+        # enabled (so auto-fallback/return works, or stays manual-only, per the
+        # user's config panel settings).
         _set(step="finalizing")
         try:
-            wifi.enable_all()
+            _apply_policy()
         except wifi.WifiError:
             pass  # non-fatal
 
@@ -135,12 +146,68 @@ def api_history():
     return jsonify(persist_stats.get_history())
 
 
+@app.route("/api/debug")
+def api_debug():
+    """Plain-text diagnostics bundle. Served on eth0 (like the whole panel), so
+    it stays reachable even when wlan0 / the supplicant is down — the UI links
+    here on error so the report can be pasted for help. Contains no PSKs."""
+    return Response(diag.report(), mimetype="text/plain; charset=utf-8")
+
+
 @app.route("/api/networks/saved")
 def api_saved():
     try:
         return jsonify(wifi.list_networks())
     except wifi.WifiError as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/config")
+def api_config():
+    """Auto-connect settings plus the saved networks in preference order."""
+    s = settings.get()
+    try:
+        nets = settings.ordered_networks()
+    except wifi.WifiError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"auto_connect": s["auto_connect"], "mode": s["mode"], "networks": nets})
+
+
+@app.route("/api/config", methods=["POST"])
+def api_config_set():
+    data = request.get_json(silent=True) or {}
+    kw = {}
+    if "auto_connect" in data:
+        kw["auto_connect"] = bool(data["auto_connect"])
+    if "mode" in data:
+        if data["mode"] not in ("order", "signal"):
+            return jsonify({"error": "mode must be 'order' or 'signal'"}), 400
+        kw["mode"] = data["mode"]
+    settings.set(**kw)
+    try:
+        _apply_policy()
+    except wifi.WifiError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/networks/order", methods=["POST"])
+def api_order():
+    """Set the saved-network preference ranking from a list of network ids."""
+    data = request.get_json(silent=True) or {}
+    ids = data.get("order")
+    if not isinstance(ids, list):
+        return jsonify({"error": "order must be a list of network ids"}), 400
+    try:
+        by_id = {n["id"]: n["ssid"] for n in wifi.list_networks()}
+        order_ssids = [by_id[int(i)] for i in ids if int(i) in by_id]
+        settings.set(order=order_ssids)
+        _apply_policy()
+    except (TypeError, ValueError):
+        return jsonify({"error": "order must contain network ids"}), 400
+    except wifi.WifiError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/api/networks/scan")
@@ -194,6 +261,8 @@ def api_forget():
         return jsonify({"error": "missing network id"}), 400
     try:
         wifi.forget(nid)
+        # drop it from the ranking and re-assert priorities on what remains
+        _apply_policy()
     except wifi.WifiError as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
@@ -209,4 +278,9 @@ def api_action_dismiss():
 
 
 if __name__ == "__main__":
+    # Make wpa_supplicant reflect the saved auto-connect policy on boot.
+    try:
+        _apply_policy()
+    except wifi.WifiError:
+        pass  # supplicant may not be reachable yet; the watchdog will recover it
     app.run(host=config.BIND_HOST, port=config.PORT, threaded=True)

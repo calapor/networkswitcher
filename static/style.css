@@ -47,6 +47,10 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 .banner .dismiss:hover { opacity: 1; }
 .hidden { display: none; }
 
+.diag-hint { margin: 12px 0 0; font-size: .85rem; color: var(--muted); }
+.diag-hint a { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.list .muted a { color: var(--accent); white-space: nowrap; }
+
 .list { list-style: none; margin: 0; padding: 0; }
 .list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
 .list li:first-child { border-top: none; }
@@ -75,6 +79,30 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 .btn.small { padding: 5px 10px; font-size: .82rem; }
 
 .signal { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; width: 44px; text-align: right; }
+
+/* auto-connect card */
+.switch-row { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 500; }
+.switch-row input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.mode-row { margin-top: 14px; }
+.mode-label { color: var(--muted); font-size: .85rem; }
+.toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.toggle .seg {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  padding: 6px 12px; font-size: .82rem;
+}
+.toggle .seg + .seg { border-left: 1px solid var(--border); }
+.toggle .seg.active { background: var(--accent); color: #fff; }
+.mode-row.disabled { opacity: .4; pointer-events: none; }
+
+/* reorder arrows in the saved list */
+.arrows { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.arrows .arrow {
+  background: #2a2f3a; border: 1px solid var(--border); color: var(--fg);
+  border-radius: 5px; width: 26px; height: 17px; line-height: 1; padding: 0;
+  font-size: .7rem; cursor: pointer;
+}
+.arrows .arrow:hover:not(:disabled) { border-color: var(--accent); }
+.arrows .arrow:disabled { opacity: .3; cursor: default; }
 
 .add-form { display: flex; flex-direction: column; gap: 12px; }
 .add-form label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--muted); }

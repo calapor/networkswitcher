@@ -41,7 +41,7 @@ fi
 
 echo "==> Installing files to $APP_DIR"
 mkdir -p "$APP_DIR"
-for item in app.py wifi.py net.py config.py persist_stats.py requirements.txt templates static; do
+for item in app.py wifi.py net.py config.py diag.py settings.py persist_stats.py requirements.txt templates static; do
   cp -r "$SRC_DIR/$item" "$APP_DIR/"
 done
 
