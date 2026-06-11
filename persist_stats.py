@@ -1,12 +1,14 @@
 """Persistent all-time traffic stats that survive app restarts.
 
 Tracks cumulative rx/tx bytes across interface resets and process restarts
-by persisting totals to stats.json in the app directory every 60 seconds.
+by persisting totals to stats.json in the app directory every 2 hours.
 """
+import atexit
 import datetime
 import glob
 import json
 import os
+import signal
 import threading
 import time
 
@@ -245,9 +247,22 @@ def _refresh_anchors_locked(total_rx, total_tx):
 
 def _saver_loop():
     while True:
-        time.sleep(60)
+        time.sleep(7200)
         with _lock:
             _save_locked()
+
+
+def _flush():
+    """Persist immediately — used at process exit so the long save interval
+    doesn't lose the in-memory session bytes on shutdown/reboot."""
+    with _lock:
+        _save_locked()
+
+
+def _handle_signal(signum, frame):
+    _flush()
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)  # proceed with normal termination
 
 
 def init():
@@ -264,6 +279,12 @@ def init():
     with _lock:
         _refresh_anchors_locked(_stored_rx + _session_rx, _stored_tx + _session_tx)
     threading.Thread(target=_saver_loop, daemon=True, name="stats-saver").start()
+    atexit.register(_flush)  # normal interpreter exit
+    for sig in (signal.SIGTERM, signal.SIGINT):  # systemd stop / Ctrl-C
+        try:
+            signal.signal(sig, _handle_signal)
+        except ValueError:
+            pass  # not the main thread; skip
 
 
 def update(kernel_rx, kernel_tx, ssid=None):
