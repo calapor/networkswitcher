@@ -4,6 +4,7 @@ Tracks cumulative rx/tx bytes across interface resets and process restarts
 by persisting totals to stats.json in the app directory every 60 seconds.
 """
 import datetime
+import glob
 import json
 import os
 import threading
@@ -15,7 +16,10 @@ import config
 _INITIAL_RX = round(54.9 * 1024 ** 3)
 _INITIAL_TX = round(23.2 * 1024 ** 3)
 
-_STATS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stats.json")
+_STATS_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stats.json")
+_STATS_TMP_FILE = _STATS_FILE + ".tmp"
+_STATS_BAK_FILE = _STATS_FILE + ".bak"
+_SNAPSHOT_KEEP  = 8  # how many weekly snapshots to retain
 
 _lock = threading.Lock()
 _stored_rx = _INITIAL_RX  # total loaded from disk at startup
@@ -112,83 +116,105 @@ def _period_with_current(anchors, history, total_rx, total_tx):
     return out
 
 
-def _load():
+def _build_data():
+    """Assemble the dict to persist. Must be called with _lock held."""
+    return {
+        "rx_bytes": _stored_rx + _session_rx,
+        "tx_bytes": _stored_tx + _session_tx,
+        "period_anchors": {
+            "day_key": _day_key,   "day_rx": _day_anchor_rx,   "day_tx": _day_anchor_tx,
+            "week_key": _week_key, "week_rx": _week_anchor_rx, "week_tx": _week_anchor_tx,
+            "month_key": _month_key, "month_rx": _month_anchor_rx, "month_tx": _month_anchor_tx,
+            "year_key": _year_key, "year_rx": _year_anchor_rx, "year_tx": _year_anchor_tx,
+        },
+        "history": {
+            "days":   _history["days"],
+            "weeks":  _history["weeks"],
+            "months": _history["months"],
+            "years":  _history["years"],
+        },
+        "by_ssid": _by_ssid,
+        "ssid_anchors": _ssid_anchors,
+        "history_by_ssid": _history_by_ssid,
+    }
+
+
+def _unpack_data(data):
+    """Populate globals from a loaded dict. Raises KeyError/ValueError on bad data."""
     global _stored_rx, _stored_tx, _by_ssid, _by_ssid_seeded
     global _ssid_anchors, _history_by_ssid
     global _day_key, _day_anchor_rx, _day_anchor_tx
     global _week_key, _week_anchor_rx, _week_anchor_tx
     global _month_key, _month_anchor_rx, _month_anchor_tx
     global _year_key, _year_anchor_rx, _year_anchor_tx
-    try:
-        with open(_STATS_FILE) as f:
-            data = json.load(f)
-        _stored_rx = int(data["rx_bytes"])
-        _stored_tx = int(data["tx_bytes"])
-        pa = data.get("period_anchors", {})
-        _day_key        = pa.get("day_key")
-        _day_anchor_rx  = int(pa.get("day_rx", 0))
-        _day_anchor_tx  = int(pa.get("day_tx", 0))
-        _week_key       = pa.get("week_key")
-        _week_anchor_rx = int(pa.get("week_rx", 0))
-        _week_anchor_tx = int(pa.get("week_tx", 0))
-        _month_key       = pa.get("month_key")
-        _month_anchor_rx = int(pa.get("month_rx", 0))
-        _month_anchor_tx = int(pa.get("month_tx", 0))
-        _year_key       = pa.get("year_key")
-        _year_anchor_rx = int(pa.get("year_rx", 0))
-        _year_anchor_tx = int(pa.get("year_tx", 0))
-        hist = data.get("history", {})
-        _history["days"]   = hist.get("days", {})
-        _history["weeks"]  = hist.get("weeks", {})
-        _history["months"] = hist.get("months", {})
-        _history["years"]  = hist.get("years", {})
-        if "by_ssid" in data:
-            _by_ssid = dict(data["by_ssid"])
-            _by_ssid_seeded = True
-        _ssid_anchors = dict(data.get("ssid_anchors", {}))
-        _history_by_ssid = {
-            s: {**_empty_history(), **h} for s, h in data.get("history_by_ssid", {}).items()
-        }
-    except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError):
-        pass  # first run: defaults stay
+    _stored_rx = int(data["rx_bytes"])
+    _stored_tx = int(data["tx_bytes"])
+    pa = data.get("period_anchors", {})
+    _day_key        = pa.get("day_key")
+    _day_anchor_rx  = int(pa.get("day_rx", 0))
+    _day_anchor_tx  = int(pa.get("day_tx", 0))
+    _week_key       = pa.get("week_key")
+    _week_anchor_rx = int(pa.get("week_rx", 0))
+    _week_anchor_tx = int(pa.get("week_tx", 0))
+    _month_key       = pa.get("month_key")
+    _month_anchor_rx = int(pa.get("month_rx", 0))
+    _month_anchor_tx = int(pa.get("month_tx", 0))
+    _year_key       = pa.get("year_key")
+    _year_anchor_rx = int(pa.get("year_rx", 0))
+    _year_anchor_tx = int(pa.get("year_tx", 0))
+    hist = data.get("history", {})
+    _history["days"]   = hist.get("days", {})
+    _history["weeks"]  = hist.get("weeks", {})
+    _history["months"] = hist.get("months", {})
+    _history["years"]  = hist.get("years", {})
+    if "by_ssid" in data:
+        _by_ssid = dict(data["by_ssid"])
+        _by_ssid_seeded = True
+    _ssid_anchors = dict(data.get("ssid_anchors", {}))
+    _history_by_ssid = {
+        s: {**_empty_history(), **h} for s, h in data.get("history_by_ssid", {}).items()
+    }
+
+
+def _load():
+    for path in (_STATS_FILE, _STATS_BAK_FILE):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            _unpack_data(data)
+            return
+        except (FileNotFoundError, KeyError, json.JSONDecodeError, ValueError):
+            continue
+    # both failed: defaults stay (first run)
 
 
 def _save_locked():
-    """Write current totals to disk. Must be called with _lock held."""
+    """Atomically write current totals to disk. Must be called with _lock held."""
     try:
-        with open(_STATS_FILE, "w") as f:
-            json.dump(
-                {
-                    "rx_bytes": _stored_rx + _session_rx,
-                    "tx_bytes": _stored_tx + _session_tx,
-                    "period_anchors": {
-                        "day_key": _day_key,
-                        "day_rx": _day_anchor_rx,
-                        "day_tx": _day_anchor_tx,
-                        "week_key": _week_key,
-                        "week_rx": _week_anchor_rx,
-                        "week_tx": _week_anchor_tx,
-                        "month_key": _month_key,
-                        "month_rx": _month_anchor_rx,
-                        "month_tx": _month_anchor_tx,
-                        "year_key": _year_key,
-                        "year_rx": _year_anchor_rx,
-                        "year_tx": _year_anchor_tx,
-                    },
-                    "history": {
-                        "days":   _history["days"],
-                        "weeks":  _history["weeks"],
-                        "months": _history["months"],
-                        "years":  _history["years"],
-                    },
-                    "by_ssid": _by_ssid,
-                    "ssid_anchors": _ssid_anchors,
-                    "history_by_ssid": _history_by_ssid,
-                },
-                f,
-            )
+        with open(_STATS_TMP_FILE, "w") as f:
+            json.dump(_build_data(), f)
+        if os.path.exists(_STATS_FILE):
+            os.replace(_STATS_FILE, _STATS_BAK_FILE)
+        os.replace(_STATS_TMP_FILE, _STATS_FILE)
     except OSError:
         pass
+
+
+def _snapshot_week(completed_week_key):
+    """Write a dated weekly snapshot and prune old ones. Must be called with _lock held."""
+    d = os.path.dirname(_STATS_FILE)
+    snap_path = os.path.join(d, f"stats.{completed_week_key}.json")
+    try:
+        with open(snap_path, "w") as f:
+            json.dump(_build_data(), f)
+    except OSError:
+        return
+    snaps = sorted(glob.glob(os.path.join(d, "stats.????-W??.json")))
+    for old in snaps[:-_SNAPSHOT_KEEP]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
 
 
 def _refresh_anchors_locked(total_rx, total_tx):
@@ -205,6 +231,7 @@ def _refresh_anchors_locked(total_rx, total_tx):
     if _week_key != wk:
         if _week_key is not None:
             _history["weeks"][_week_key] = {"rx": total_rx - _week_anchor_rx, "tx": total_tx - _week_anchor_tx}
+            _snapshot_week(_week_key)
         _week_key, _week_anchor_rx, _week_anchor_tx = wk, total_rx, total_tx
     if _month_key != mk:
         if _month_key is not None:
