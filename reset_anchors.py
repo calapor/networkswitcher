@@ -10,6 +10,8 @@ import json
 import os
 
 STATS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stats.json")
+STATS_TMP  = STATS_FILE + ".tmp"
+STATS_BAK  = STATS_FILE + ".bak"
 
 
 def current_period_keys():
@@ -37,7 +39,10 @@ data["period_anchors"] = {
     "year_key": yk,  "year_rx": 0,  "year_tx": 0,
 }
 
-with open(STATS_FILE, "w") as f:
+with open(STATS_TMP, "w") as f:
     json.dump(data, f, indent=2)
+if os.path.exists(STATS_FILE):
+    os.replace(STATS_FILE, STATS_BAK)
+os.replace(STATS_TMP, STATS_FILE)
 
 print(f"Anchors reset to 0. Keys: week={wk}, month={mk}, year={yk}")
