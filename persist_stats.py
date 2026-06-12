@@ -20,6 +20,7 @@ _STATS_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stats
 _STATS_TMP_FILE = _STATS_FILE + ".tmp"
 _STATS_BAK_FILE = _STATS_FILE + ".bak"
 _SNAPSHOT_KEEP  = 8  # how many weekly snapshots to retain
+_SAMPLE_INTERVAL = 30  # seconds between background counter samples
 
 _lock = threading.Lock()
 _stored_rx = _INITIAL_RX  # total loaded from disk at startup
@@ -243,9 +244,21 @@ def _refresh_anchors_locked(total_rx, total_tx):
         _year_key, _year_anchor_rx, _year_anchor_tx = yk, total_rx, total_tx
 
 
-def _saver_loop():
+def _sampler_loop():
+    """Sample the kernel counters + current SSID and persist, every
+    _SAMPLE_INTERVAL seconds — independent of the web panel, so usage is
+    recorded 24/7 rather than only while someone has the dashboard open."""
+    import net
+    import wifi
     while True:
-        time.sleep(60)
+        time.sleep(_SAMPLE_INTERVAL)
+        rx, tx = net.iface_bytes(config.IFACE)
+        ssid = None
+        try:
+            ssid = wifi.status().get("ssid") or None
+        except Exception:  # noqa: BLE001 - supplicant down / wlan0 bouncing
+            pass  # update() falls back to _last_ssid
+        update(rx, tx, ssid)
         with _lock:
             _save_locked()
 
@@ -263,7 +276,7 @@ def init():
     _last_kernel_tx = tx if tx is not None else 0
     with _lock:
         _refresh_anchors_locked(_stored_rx + _session_rx, _stored_tx + _session_tx)
-    threading.Thread(target=_saver_loop, daemon=True, name="stats-saver").start()
+    threading.Thread(target=_sampler_loop, daemon=True, name="stats-sampler").start()
 
 
 def update(kernel_rx, kernel_tx, ssid=None):
