@@ -21,6 +21,13 @@ _STATS_TMP_FILE = _STATS_FILE + ".tmp"
 _STATS_BAK_FILE = _STATS_FILE + ".bak"
 _SNAPSHOT_KEEP  = 8  # how many weekly snapshots to retain
 _SAMPLE_INTERVAL = 30  # seconds between background counter samples
+# Largest believable per-sample byte delta. Samples are <=30s apart and the
+# upstream link is a phone hotspot (tens of Mbps), so a single sample can't
+# legitimately move more than a few hundred MB; anything larger is a misread or
+# a post-flap counter climb-back and is dropped (see _advance). Without this,
+# one transient low read of /sys counters would inject a whole counter's worth
+# of phantom bytes (the "216 GB in one day" bug).
+_MAX_SAMPLE_DELTA = 4 * 1024 ** 3  # bytes
 
 _lock = threading.Lock()
 _stored_rx = _INITIAL_RX  # total loaded from disk at startup
@@ -279,36 +286,47 @@ def init():
     threading.Thread(target=_sampler_loop, daemon=True, name="stats-sampler").start()
 
 
+def _advance(kernel, last, session, stored):
+    """Fold one raw kernel counter sample into (session, stored) totals.
+
+    Returns ``(delta, new_session, new_stored)`` where ``delta`` is the traffic
+    to credit this cycle. Guards against two failure modes seen on the Pi:
+
+    * counter went backwards (device reset or a transient low read during a
+      wlan0 flap) — fold the session into stored and re-baseline, crediting 0
+      rather than the new counter value;
+    * counter jumped forward by more than ``_MAX_SAMPLE_DELTA`` (a misread or
+      the counter climbing back to its true value after a spurious low read) —
+      resync without crediting the implausible delta.
+    """
+    if kernel is None or last is None:
+        return 0, session, stored
+    if kernel < last:
+        return 0, kernel, stored + session
+    delta = kernel - last
+    if delta > _MAX_SAMPLE_DELTA:
+        return 0, session, stored
+    return delta, session + delta, stored
+
+
 def update(kernel_rx, kernel_tx, ssid=None):
     """Feed the latest raw kernel counter values; return (all_time_rx, all_time_tx).
 
-    Handles counter resets (interface bounce) by detecting when the kernel
-    value decreases and treating the new value as counting from zero. When
-    ``ssid`` is given, this cycle's traffic is credited to that network.
+    Counter resets and misreads (interface bounce / transient low reads) are
+    handled by ``_advance`` so they never inflate the totals. When ``ssid`` is
+    given, this cycle's traffic is credited to that network.
     """
     global _session_rx, _session_tx, _last_kernel_rx, _last_kernel_tx, _stored_rx, _stored_tx
     global _by_ssid_seeded, _last_ssid
     with _lock:
-        delta_rx = delta_tx = 0
-        if kernel_rx is not None and _last_kernel_rx is not None:
-            if kernel_rx >= _last_kernel_rx:
-                delta_rx = kernel_rx - _last_kernel_rx
-                _session_rx += delta_rx
-            else:
-                # counter reset — fold session into stored and start fresh
-                _stored_rx += _session_rx
-                _session_rx = kernel_rx
-                delta_rx = kernel_rx
+        delta_rx, _session_rx, _stored_rx = _advance(
+            kernel_rx, _last_kernel_rx, _session_rx, _stored_rx)
+        if kernel_rx is not None:
             _last_kernel_rx = kernel_rx
 
-        if kernel_tx is not None and _last_kernel_tx is not None:
-            if kernel_tx >= _last_kernel_tx:
-                delta_tx = kernel_tx - _last_kernel_tx
-                _session_tx += delta_tx
-            else:
-                _stored_tx += _session_tx
-                _session_tx = kernel_tx
-                delta_tx = kernel_tx
+        delta_tx, _session_tx, _stored_tx = _advance(
+            kernel_tx, _last_kernel_tx, _session_tx, _stored_tx)
+        if kernel_tx is not None:
             _last_kernel_tx = kernel_tx
 
         total_rx = _stored_rx + _session_rx
