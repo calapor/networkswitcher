@@ -286,17 +286,31 @@ async function doScan() {
       tag.textContent = ap.security;
       li.appendChild(tag);
 
-      const use = document.createElement("button");
-      use.className = "btn small";
-      use.textContent = "Use";
-      use.onclick = () => {
-        $("add-ssid").value = ap.ssid;
-        $("add-psk").value = "";
-        $("add-hidden").checked = false;
-        $("add-psk").focus();
-        $("add-form").scrollIntoView({ behavior: "smooth", block: "center" });
-      };
-      li.appendChild(use);
+      const savedNet = _savedNets.find(n => n.ssid === ap.ssid);
+      if (savedNet) {
+        const connect = document.createElement("button");
+        connect.className = "btn small";
+        if (savedNet.current) {
+          connect.textContent = "Connected";
+          connect.disabled = true;
+        } else {
+          connect.textContent = "Connect";
+          connect.onclick = () => doConnect(savedNet.id, connect);
+        }
+        li.appendChild(connect);
+      } else {
+        const use = document.createElement("button");
+        use.className = "btn small";
+        use.textContent = "Use";
+        use.onclick = () => {
+          $("add-ssid").value = ap.ssid;
+          $("add-psk").value = "";
+          $("add-hidden").checked = false;
+          $("add-psk").focus();
+          $("add-form").scrollIntoView({ behavior: "smooth", block: "center" });
+        };
+        li.appendChild(use);
+      }
 
       ul.appendChild(li);
     }
