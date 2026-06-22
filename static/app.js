@@ -70,6 +70,9 @@ function renderStatus(s) {
   $("cur-ip").textContent = s.ip || "—";
   $("cur-net").textContent = s.error ? "—" : s.internet ? "✅ reachable" : "❌ none";
   $("cur-eth").textContent = s.eth0_up ? "✅ linked" : "❌ down";
+  const q = s.quality || {};
+  $("cur-ping").textContent = q.ping_ms != null ? `${Math.round(q.ping_ms)} ms` : "—";
+  $("cur-speed").textContent = q.speed_mbps != null ? `${q.speed_mbps.toFixed(1)} Mbps` : "—";
   $("cur-rx").textContent = s.error ? "—" : fmtBytes(s.rx_bytes);
   $("cur-tx").textContent = s.error ? "—" : fmtBytes(s.tx_bytes);
   $("all-rx").textContent   = s.error ? "—" : fmtBytes(s.all_time_rx_bytes);
@@ -78,12 +81,15 @@ function renderStatus(s) {
   const banner = $("action-banner");
   // A "failed" verdict can go stale: a slow AP may associate just after the
   // worker gave up, and the link comes up anyway. Hide it once we're online.
-  if (action.step === "failed" && action.error && !s.internet) {
+  const failed = (action.step === "failed" || action.step === "failover failed");
+  if (failed && action.error && !s.internet) {
     banner.className = "banner err";
     banner.textContent = "";
     const msg = document.createElement("span");
     msg.className = "banner-msg";
-    msg.textContent = `Switch to “${action.target}” failed: ${action.error}`;
+    msg.textContent = action.target === "auto-failover"
+      ? `Auto-failover failed: ${action.error}`
+      : `Switch to “${action.target}” failed: ${action.error}`;
     banner.appendChild(msg);
     const x = document.createElement("button");
     x.className = "dismiss";
@@ -94,7 +100,9 @@ function renderStatus(s) {
     banner.classList.remove("hidden");
   } else if (action.busy) {
     banner.className = "banner work";
-    banner.textContent = `Switching to “${action.target}” — ${action.step}…`;
+    banner.textContent = action.target === "auto-failover"
+      ? `${action.step}…`
+      : `Switching to “${action.target}” — ${action.step}…`;
     banner.classList.remove("hidden");
   } else {
     banner.classList.add("hidden");
