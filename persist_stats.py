@@ -48,10 +48,11 @@ _history: dict = {"days": {}, "weeks": {}, "months": {}, "years": {}}
 
 # Cumulative bytes attributed to each SSID — guarded by _lock.
 # The kernel counter is interface-wide, so traffic is credited to whichever
-# network is connected when each delta is seen. On the first run with this
-# feature the connected network is seeded with all existing all-time usage.
+# network is connected when each delta is seen. Each cycle the connected
+# network also absorbs any unattributed remainder (pre-tracking/historical
+# usage, or bytes seen while no SSID was known) so the per-network totals
+# always reconcile to the interface-wide all-time total.
 _by_ssid: dict = {}
-_by_ssid_seeded = False
 _last_ssid = None  # most recent non-empty SSID, used to attribute null-SSID traffic
 
 # Per-SSID period anchors and completed-period history — guarded by _lock.
@@ -149,7 +150,7 @@ def _build_data():
 
 def _unpack_data(data):
     """Populate globals from a loaded dict. Raises KeyError/ValueError on bad data."""
-    global _stored_rx, _stored_tx, _by_ssid, _by_ssid_seeded
+    global _stored_rx, _stored_tx, _by_ssid
     global _ssid_anchors, _history_by_ssid
     global _day_key, _day_anchor_rx, _day_anchor_tx
     global _week_key, _week_anchor_rx, _week_anchor_tx
@@ -175,9 +176,7 @@ def _unpack_data(data):
     _history["weeks"]  = hist.get("weeks", {})
     _history["months"] = hist.get("months", {})
     _history["years"]  = hist.get("years", {})
-    if "by_ssid" in data:
-        _by_ssid = dict(data["by_ssid"])
-        _by_ssid_seeded = True
+    _by_ssid = dict(data.get("by_ssid", {}))
     _ssid_anchors = dict(data.get("ssid_anchors", {}))
     _history_by_ssid = {
         s: {**_empty_history(), **h} for s, h in data.get("history_by_ssid", {}).items()
@@ -317,7 +316,7 @@ def update(kernel_rx, kernel_tx, ssid=None):
     given, this cycle's traffic is credited to that network.
     """
     global _session_rx, _session_tx, _last_kernel_rx, _last_kernel_tx, _stored_rx, _stored_tx
-    global _by_ssid_seeded, _last_ssid
+    global _last_ssid
     with _lock:
         delta_rx, _session_rx, _stored_rx = _advance(
             kernel_rx, _last_kernel_rx, _session_rx, _stored_rx)
@@ -339,22 +338,30 @@ def update(kernel_rx, kernel_tx, ssid=None):
         # the floor — otherwise they'd inflate "all networks" with no owner.
         effective_ssid = ssid or _last_ssid
         if effective_ssid:
-            if not _by_ssid_seeded:
-                # First run with this feature: attribute all existing usage to
-                # whatever network is connected right now, but don't date that
-                # historical lump into the current week/month/year.
-                _by_ssid[effective_ssid] = {"rx": total_rx, "tx": total_tx}
-                _by_ssid_seeded = True
-                _init_ssid_anchors(effective_ssid, total_rx, total_tx)
-            elif effective_ssid not in _by_ssid:
+            if effective_ssid not in _by_ssid:
                 # New network: count its traffic from zero so this cycle lands
                 # in the current period.
-                _by_ssid[effective_ssid] = {"rx": delta_rx, "tx": delta_tx}
+                _by_ssid[effective_ssid] = {"rx": 0, "tx": 0}
                 _init_ssid_anchors(effective_ssid, 0, 0)
-            else:
-                b = _by_ssid[effective_ssid]
-                b["rx"] += delta_rx
-                b["tx"] += delta_tx
+            b = _by_ssid[effective_ssid]
+            # Normal per-cycle traffic (lands in the current period).
+            b["rx"] += delta_rx
+            b["tx"] += delta_tx
+            # Reconcile: the interface-wide all-time total must equal the sum
+            # across networks. Any shortfall is pre-tracking/historical usage,
+            # or bytes seen while no SSID was known; credit it to the connected
+            # network but bump its period anchors by the same amount so the
+            # lump is NOT dated into the current week/month/year (only the
+            # all-time bar). This self-heals stats.json on the next update.
+            gap_rx = max(0, total_rx - sum(v["rx"] for v in _by_ssid.values()))
+            gap_tx = max(0, total_tx - sum(v["tx"] for v in _by_ssid.values()))
+            if gap_rx > 0 or gap_tx > 0:
+                b["rx"] += gap_rx
+                b["tx"] += gap_tx
+                a = _ssid_anchors[effective_ssid]
+                for _, unit in _PERIOD_UNITS:
+                    a[unit + "_rx"] += gap_rx
+                    a[unit + "_tx"] += gap_tx
         if ssid:
             _last_ssid = ssid
 
