@@ -13,12 +13,14 @@ from flask import Flask, Response, jsonify, render_template, request
 import config
 import diag
 import net
+import netquality
 import persist_stats
 import settings
 import wifi
 
 app = Flask(__name__)
 persist_stats.init()
+netquality.init()
 
 # --- background switch worker ----------------------------------------------
 
@@ -37,6 +39,39 @@ def _apply_policy():
     wifi.apply_policy(order, s["mode"], s["auto_connect"])
 
 
+def _associate_and_dhcp(connect_fn):
+    """Run connect_fn, then wait for association, drive DHCP and confirm an IP.
+
+    Shared by the manual switch worker and auto-failover. Raises wifi.WifiError
+    if any step fails; the caller is responsible for the surrounding UI state.
+    """
+    connect_fn()
+
+    # wait for association
+    deadline = time.time() + config.ASSOC_TIMEOUT
+    while time.time() < deadline:
+        if wifi.status().get("wpa_state") == "COMPLETED":
+            break
+        time.sleep(1)
+    else:
+        raise wifi.WifiError(
+            "did not associate — check the password and that the network is in range"
+        )
+
+    # acquire an IP (nothing else runs DHCP on this Pi)
+    _set(step="getting IP address")
+    ok, msg = net.run_dhcp(config.IFACE)
+    if not ok:
+        raise wifi.WifiError(f"associated but DHCP failed: {msg}")
+
+    # confirm we actually got an address
+    deadline = time.time() + 10
+    while time.time() < deadline and not net.iface_ip(config.IFACE):
+        time.sleep(1)
+    if not net.iface_ip(config.IFACE):
+        raise wifi.WifiError("associated but no IP address was assigned")
+
+
 def _switch_worker(connect_fn, target_label, delay=0):
     """Run a connect/add action, then drive DHCP and verify connectivity.
 
@@ -52,31 +87,7 @@ def _switch_worker(connect_fn, target_label, delay=0):
             time.sleep(1)
 
         _set(step="associating")
-        connect_fn()
-
-        # wait for association
-        deadline = time.time() + config.ASSOC_TIMEOUT
-        while time.time() < deadline:
-            if wifi.status().get("wpa_state") == "COMPLETED":
-                break
-            time.sleep(1)
-        else:
-            raise wifi.WifiError(
-                "did not associate — check the password and that the network is in range"
-            )
-
-        # acquire an IP (nothing else runs DHCP on this Pi)
-        _set(step="getting IP address")
-        ok, msg = net.run_dhcp(config.IFACE)
-        if not ok:
-            raise wifi.WifiError(f"associated but DHCP failed: {msg}")
-
-        # confirm we actually got an address
-        deadline = time.time() + 10
-        while time.time() < deadline and not net.iface_ip(config.IFACE):
-            time.sleep(1)
-        if not net.iface_ip(config.IFACE):
-            raise wifi.WifiError("associated but no IP address was assigned")
+        _associate_and_dhcp(connect_fn)
 
         # re-apply the auto-connect policy: priorities + which networks stay
         # enabled (so auto-fallback/return works, or stays manual-only, per the
@@ -101,6 +112,105 @@ def _start(connect_fn, target_label, delay=0):
         target=_switch_worker, args=(connect_fn, target_label, delay), daemon=True
     ).start()
     return True
+
+
+# --- auto-failover ----------------------------------------------------------
+
+def _connect_and_verify(nid, ssid):
+    """Switch to saved network nid, get an IP, and ping-test it.
+
+    Returns True only if the network associates, gets an address, AND the
+    internet becomes reachable (the "must be pingable" requirement). Any failure
+    returns False so the caller can move on to the next candidate.
+    """
+    try:
+        _set(step=f"trying {ssid}")
+        _associate_and_dhcp(lambda: wifi.select_network(nid))
+    except wifi.WifiError:
+        return False
+    # ping gate: give it a few seconds to actually carry traffic
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        if net.internet_ok():
+            return True
+        time.sleep(1)
+    return False
+
+
+def _failover_candidates():
+    """Saved networks currently visible, strongest signal first, excluding the
+    network we're connected to now (it's the one that just failed)."""
+    results = wifi.scan_results()  # already deduped per SSID, sorted by dBm desc
+    dbm = {e["ssid"]: e["dbm"] for e in results}
+    saved = wifi.list_networks()
+    cands = [n for n in saved if n["ssid"] in dbm and not n["current"]]
+    cands.sort(key=lambda n: dbm[n["ssid"]], reverse=True)
+    return cands
+
+
+def _start_failover():
+    """Spawn the failover worker unless a switch/failover is already running."""
+    with _lock:
+        if _action["busy"]:
+            return False
+        _set(busy=True, step="connection lost — scanning for a working network",
+             error="", target="auto-failover")
+    threading.Thread(target=_failover_attempt, daemon=True).start()
+    return True
+
+
+def _failover_attempt():
+    """Find and connect to the strongest saved network that is pingable."""
+    try:
+        wifi.trigger_scan()
+        time.sleep(2.5)  # let the radio populate results (matches /api/networks/scan)
+
+        for n in _failover_candidates():
+            if _connect_and_verify(n["id"], n["ssid"]):
+                try:
+                    _apply_policy()
+                except wifi.WifiError:
+                    pass  # non-fatal
+                _set(busy=False, step=f"connected to {n['ssid']}", target=n["ssid"])
+                return
+
+        # nothing worked — restore policy so wpa_supplicant keeps trying on its own
+        try:
+            _apply_policy()
+        except wifi.WifiError:
+            pass
+        _set(busy=False, step="failover failed",
+             error="no saved network is reachable right now")
+    except Exception as e:  # noqa: BLE001 - surface any failure to the UI
+        _set(busy=False, step="failover failed", error=str(e))
+
+
+def _failover_monitor():
+    """Watch internet reachability; after a sustained outage, switch networks.
+
+    Only acts when auto-connect is on, and never while another switch/failover is
+    already running (the _start lock also guards against that). A few minutes of
+    failed checks must accumulate first so brief blips don't cause churn.
+    """
+    fails = 0
+    while True:
+        time.sleep(config.FAILOVER_CHECK_INTERVAL)
+        if _action["busy"]:
+            continue
+        try:
+            if not settings.get()["auto_connect"]:
+                fails = 0
+                continue
+        except Exception:  # noqa: BLE001 - settings unreadable; skip this tick
+            continue
+        if net.internet_ok():
+            fails = 0
+            continue
+        fails += 1
+        if fails < config.FAILOVER_FAILS:
+            continue
+        fails = 0
+        _start_failover()
 
 
 # --- routes -----------------------------------------------------------------
@@ -137,6 +247,7 @@ def api_status():
         "month_tx_bytes": month_tx,
         "year_rx_bytes": year_rx,
         "year_tx_bytes": year_tx,
+        "quality": netquality.latest(),
         "action": _action,
     })
 
@@ -283,4 +394,5 @@ if __name__ == "__main__":
         _apply_policy()
     except wifi.WifiError:
         pass  # supplicant may not be reachable yet; the watchdog will recover it
+    threading.Thread(target=_failover_monitor, daemon=True, name="failover").start()
     app.run(host=config.BIND_HOST, port=config.PORT, threaded=True)

@@ -3,6 +3,8 @@ import re
 import shutil
 import socket
 import subprocess
+import time
+import urllib.request
 
 import config
 
@@ -48,6 +50,53 @@ def internet_ok():
             return True
     except OSError:
         return False
+
+
+def ping_ms(host=None, port=None):
+    """Round-trip latency (ms) to the probe host, or None if unreachable.
+
+    Times a single TCP connect rather than an ICMP echo — same target as
+    internet_ok() and no raw-socket privileges needed.
+    """
+    host = host or config.PROBE_HOST
+    port = port or config.PROBE_PORT
+    start = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=3):
+            pass
+    except OSError:
+        return None
+    return (time.monotonic() - start) * 1000.0
+
+
+def speedtest_mbps():
+    """Download SPEEDTEST_BYTES from SPEEDTEST_URL and return throughput in Mbps.
+
+    Returns None on any error. Kept small (see config.SPEEDTEST_BYTES) so the
+    measurement costs little bandwidth; accuracy is only indicative on fast links
+    where latency dominates a short transfer.
+    """
+    nbytes = config.SPEEDTEST_BYTES
+    if nbytes <= 0:
+        return None
+    url = config.SPEEDTEST_URL.format(n=nbytes)
+    # Cloudflare 403s the default Python-urllib User-Agent, so send our own.
+    req = urllib.request.Request(url, headers={"User-Agent": "networkswitcher/1.0"})
+    try:
+        start = time.monotonic()
+        read = 0
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                read += len(chunk)
+        elapsed = time.monotonic() - start
+    except Exception:  # noqa: BLE001 - any network/HTTP error means "no measurement"
+        return None
+    if elapsed <= 0 or read <= 0:
+        return None
+    return read * 8 / elapsed / 1e6
 
 
 def _dhcp_command(iface):
