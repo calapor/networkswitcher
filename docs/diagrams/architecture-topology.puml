@@ -1,0 +1,52 @@
+@startuml
+' Source of truth for the ARCHITECTURE.md routed-NAT-bridge diagram.
+' Render: curl -sS -X POST -H "Content-Type: text/plain" \
+'   --data-binary @architecture-topology.puml https://kroki.io/plantuml/png -o architecture-topology.png
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #2c3e50
+skinparam rectangle {
+  RoundCorner 12
+  BorderColor #2c3e50
+  BackgroundColor #f5f7fa
+}
+skinparam cloud {
+  BorderColor #2980b9
+  BackgroundColor #eaf2fb
+}
+skinparam node {
+  BorderColor #27ae60
+  BackgroundColor #eafaf1
+}
+
+cloud "Internet" as inet
+cloud "Upstream WiFi\nbrambles_d2 / hotspot (172.20.10.x)" as up
+
+node "rpi3wifi (Raspberry Pi 3)" as pi {
+  rectangle "wlan0\nassociated by wpa_supplicant\nDHCP lease + default route" as wlan0
+  rectangle "Routing / NAT\nnet.ipv4.ip_forward = 1\niptables MASQUERADE -o wlan0\nforward eth0 <-> wlan0" as nat
+  rectangle "Flask panel\nbinds 192.168.2.1:8080\n(LAN-only)" as panel
+  rectangle "eth0\n192.168.2.1/24 (static)" as eth0
+}
+
+node "Mesh router\nOrbi RBR50 (WAN = eth0)\ndoes DHCP/NAT for the house" as orbi
+cloud "House WiFi\nbrambles_d" as house
+rectangle "Phones - laptops - TVs" as devices
+
+inet --> up
+up --> wlan0
+wlan0 --> nat
+nat --> eth0
+panel -[hidden]- nat
+eth0 --> orbi
+orbi --> house
+house --> devices
+
+note right of panel
+  Independent of wlan0, so the
+  panel stays reachable from the
+  house even when the upstream
+  WiFi is down -- the recovery path.
+end note
+@enduml

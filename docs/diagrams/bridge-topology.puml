@@ -1,0 +1,41 @@
+@startuml
+' Source of truth for the README topology diagram.
+' Render: curl -sS -X POST -H "Content-Type: text/plain" \
+'   --data-binary @bridge-topology.puml https://kroki.io/plantuml/png -o bridge-topology.png
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #2c3e50
+skinparam rectangle {
+  RoundCorner 14
+  BorderColor #2c3e50
+  BackgroundColor #f5f7fa
+}
+skinparam cloud {
+  BorderColor #2980b9
+  BackgroundColor #eaf2fb
+}
+skinparam node {
+  BorderColor #27ae60
+  BackgroundColor #eafaf1
+}
+
+cloud "Internet" as inet
+cloud "Upstream WiFi\n(brambles_d2 / a phone hotspot)" as up
+node "rpi3wifi\nWiFi-to-Ethernet bridge\n(NAT: wlan0 -> eth0)" as pi
+node "Mesh router\nOrbi RBR50 (WAN = eth0)" as orbi
+cloud "House WiFi\n(brambles_d)" as house
+rectangle "Phones - laptops - TVs" as devices
+
+inet --> up
+up --> pi : wlan0\nwpa_supplicant + DHCP
+pi --> orbi : eth0\n192.168.2.1 (static)
+orbi --> house : rebroadcast
+house --> devices
+
+note right of pi
+  Flask panel binds the eth0 IP
+  (192.168.2.1:8080) -- LAN-only,
+  reachable even while wlan0 is down.
+end note
+@enduml

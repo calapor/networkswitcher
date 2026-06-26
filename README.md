@@ -21,16 +21,7 @@ decent cellular coverage. If you already have usable WiFi nearby, that's wastefu
 
 This project bridges the gap literally:
 
-```
-  upstream WiFi (brambles_d2, a hotspot, …)          house WiFi (brambles_d)
-            (  (•))                                          (  (•))
-              │                                                 │
-        wlan0 │   ┌────────────────────┐   eth0          ┌─────────────┐
-              └──▶│      rpi3wifi       │────────────────▶│   Orbi      │──▶ house
-                  │  (this WiFi bridge) │  192.168.2.1    │   RBR50     │    devices
-                  │  wlan0 ─NAT→ eth0   │  (static)       │ (mesh WAN)  │
-                  └────────────────────┘                 └─────────────┘
-```
+![Bridge topology](docs/diagrams/bridge-topology.png)
 
 - **`wlan0`** associates to an upstream WiFi to get internet (driven by
   `wpa_supplicant`), with `iptables` NAT `MASQUERADE -o wlan0`.
