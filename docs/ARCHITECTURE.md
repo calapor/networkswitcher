@@ -14,32 +14,7 @@ The Pi is a **routed NAT bridge** between an upstream WiFi and a wired mesh
 router. It is *not* a layer-2 bridge — `eth0` and `wlan0` are separate IP
 subnets and traffic is NAT'd between them.
 
-```
- Internet
-    │
- ((•)) upstream WiFi  e.g. brambles_d2 / a hotspot (172.20.10.x)
-    │  associated by wpa_supplicant
- wlan0  (DHCP client lease from the upstream router; default route from lease)
-    │
- ┌──┴─────────────────────────────────────────────┐
- │  rpi3wifi (Raspberry Pi 3)                       │
- │                                                  │
- │   net.ipv4.ip_forward = 1                        │
- │   iptables -t nat -A POSTROUTING -o wlan0 \      │
- │            -j MASQUERADE                          │
- │   (forward eth0 ⇄ wlan0)                          │
- │                                                  │
- │   Flask panel binds 192.168.2.1:8080  ◀── LAN-only
- └──┬─────────────────────────────────────────────┘
- eth0  192.168.2.1/24 (static)
-    │
- ┌──┴──────────┐
- │ Orbi RBR50  │  WAN port = eth0; the mesh router does DHCP/NAT
- │ (mesh WAN)  │  for the house exactly as if wired to a modem.
- └──┬──────────┘
-    │
- ((•)) house WiFi  brambles_d  ──▶ phones, laptops, TVs …
-```
+![Routed NAT bridge topology](diagrams/architecture-topology.png)
 
 Key consequences of this layout:
 
