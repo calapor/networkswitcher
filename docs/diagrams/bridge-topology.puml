@@ -21,7 +21,7 @@ skinparam node {
 }
 
 cloud "Internet" as inet
-cloud "Upstream WiFi\n(brambles_d2 / a phone hotspot)" as up
+cloud "Upstream WiFi\n(a hotspot / nearby AP)" as up
 node "rpi3wifi\nWiFi-to-Ethernet bridge\n(NAT: wlan0 -> eth0)" as pi
 node "Mesh router\nOrbi RBR50 (WAN = eth0)" as orbi
 cloud "House WiFi\n(brambles_d)" as house

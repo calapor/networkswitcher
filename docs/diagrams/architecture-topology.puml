@@ -21,7 +21,7 @@ skinparam node {
 }
 
 cloud "Internet" as inet
-cloud "Upstream WiFi\nbrambles_d2 / hotspot (172.20.10.x)" as up
+cloud "Upstream WiFi\nhotspot / nearby AP (172.20.10.x)" as up
 
 node "rpi3wifi (Raspberry Pi 3)" as pi {
   rectangle "wlan0\nassociated by wpa_supplicant\nDHCP lease + default route" as wlan0
