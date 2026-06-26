@@ -174,7 +174,7 @@ def select_network(nid):
 
 def enable_all():
     """Re-enable every saved network so wpa_supplicant can auto-fall-back/return
-    (e.g. back to brambles_d2 when it reappears) based on saved priorities."""
+    (e.g. back to a preferred upstream when it reappears) based on saved priorities."""
     for net in list_networks():
         _wpa("enable_network", str(net["id"]))
 

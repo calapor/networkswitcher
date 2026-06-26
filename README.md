@@ -241,7 +241,7 @@ If the wrong DHCP client is auto-picked, set `DHCP_CMD` in the service file and
 
 A phone hotspot is awkward because **the phone that becomes the hotspot can never
 load this panel**: reaching `192.168.2.1` requires being on the house WiFi
-(`brambles_d`), but turning on Personal Hotspot drops the phone off `brambles_d`
+(`houseWifi`), but turning on Personal Hotspot drops the phone off `houseWifi`
 and moves it to the *upstream* side, behind the bridge's NAT, where the panel
 isn't served. Three ways to handle it:
 
@@ -252,7 +252,7 @@ isn't served. Three ways to handle it:
 - **Delay / countdown.** In *Saved networks* set a **Delay (s)**, press
   **Connect**, then enable the hotspot during the countdown.
 - **Second device.** Drive the panel from a laptop/another phone on
-  `brambles_d`; the bridge keeps that side alive while it swaps its upstream.
+  `houseWifi`; the bridge keeps that side alive while it swaps its upstream.
 
 ---
 
