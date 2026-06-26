@@ -12,12 +12,14 @@ from any browser in the house, with no SSH.
 
 Mesh routers expect a wired internet feed: you plug an Ethernet cable from a
 modem/ONT into their WAN port and they rebroadcast it around the house. But
-sometimes the only internet you have is **WiFi** — a neighbour's/landlord's AP,
-a campsite or marina WiFi, a holiday-let router in another building, an upstream
-AP on the far side of a property — and there is no wired drop to plug in.
+sometimes the only internet you have is **WiFi** — available through a hotspot during
+a holiday, or an upstream AP on the far side of a property — and there is no 
+wired drop to plug in.
 
 The usual fix is a **4G/5G SIM router**, but that needs a SIM, a data plan, and
-decent cellular coverage. If you already have usable WiFi nearby, that's wasteful.
+decent cellular coverage. If you already have a decent data plan and a phone that
+can temporarily share its internet with the router then this is a good solution for
+holidays or temporary situations when you have a good mesh router but nothing feeding it.
 
 This project bridges the gap literally:
 
