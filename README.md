@@ -52,7 +52,7 @@ network and switch to a working network.
 - **Scan** for nearby networks (deduped per SSID, strongest signal first, with
   security type), **connect** to a saved one, **add** a new one (WPA2/WPA3 or
   open, including hidden SSIDs), and **forget** networks.
-- Non-ASCII SSIDs (e.g. *Evanna’s iPhone*) are decoded and shown correctly.
+- Non-ASCII SSIDs (e.g. *Richard’s iPhone*) are decoded and shown correctly.
 - Switching runs in a background worker: associate → DHCP → verify connectivity,
   with live progress and clear errors surfaced in the UI.
 
