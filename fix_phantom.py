@@ -3,7 +3,7 @@
 A transient low read of the kernel byte counters during a wlan0 flap used to be
 treated as a counter reset, and the counter climbing back to its true value was
 then booked as one giant delta — crediting tens of GiB of "traffic" to whatever
-network was connected (e.g. "Evanna's iPhone showing 216 GB in today"). The code
+network was connected (e.g. "Someone's iPhone showing 216 GB in today"). The code
 fix in persist_stats.py (_advance) stops this happening again; this script
 repairs the already-corrupted stats.json.
 
