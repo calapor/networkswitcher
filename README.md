@@ -282,4 +282,10 @@ BIND_HOST=127.0.0.1 ./venv/bin/python app.py
 
 `wpa_cli`/`ip`/DHCP calls fail off-Pi (the UI shows the errors), but the page,
 scan/add forms, charts and the whole API shape are exercisable.
+
+---
+
+## Acknowledgements
+
+- **[Chart.js](https://www.chartjs.org/)** (MIT License) — bundled in `static/chart.umd.min.js`
 </content>
