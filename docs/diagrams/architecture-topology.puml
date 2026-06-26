@@ -31,7 +31,7 @@ node "rpi3wifi (Raspberry Pi 3)" as pi {
 }
 
 node "Mesh router\nOrbi RBR50 (WAN = eth0)\ndoes DHCP/NAT for the house" as orbi
-cloud "House WiFi\nbrambles_d" as house
+cloud "House WiFi\nhouseWifi" as house
 rectangle "Phones - laptops - TVs" as devices
 
 inet --> up
