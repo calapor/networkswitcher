@@ -102,6 +102,30 @@ network and switch to a working network.
 
 ---
 
+## Screenshots
+
+<!-- Screenshots pending — add PNGs to docs/screenshots/ to fill these in -->
+
+### Status panel
+![Status panel — current upstream network, IP, internet state, ping latency and data usage](docs/screenshots/status.png)
+
+### Usage history
+![Usage history — weekly, monthly, yearly, and per-network data charts](docs/screenshots/history.png)
+
+### Auto-connect settings
+![Auto-connect settings — enable/disable toggle and list-order vs strongest-signal mode](docs/screenshots/autoconnect.png)
+
+### Saved networks
+![Saved networks — drag-ranked list with per-network connect button and hotspot delay](docs/screenshots/saved-networks.png)
+
+### Nearby networks scan
+![Nearby networks scan — deduped results sorted by signal strength with security type](docs/screenshots/scan.png)
+
+### Add a network
+![Add a network — SSID, password, and hidden-SSID form](docs/screenshots/add-network.png)
+
+---
+
 ## Architecture
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full breakdown
