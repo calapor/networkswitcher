@@ -5,7 +5,7 @@ pipeline {
         REMOTE_USER = 'pi'
         REMOTE_HOST = '192.168.2.1'
         REMOTE_DIR  = '/home/pi/networkswitcher'
-        SSH_CRED_ID = 'networkswitcher-pi-ssh'
+        SSH_CRED_ID = 'rpi5-deploy-key'
     }
 
     stages {
