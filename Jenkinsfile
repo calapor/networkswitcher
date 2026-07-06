@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     environment {
-        REMOTE_USER = 'pi'
+        REMOTE_USER = 'roconnor'
         REMOTE_HOST = '192.168.2.1'
         REMOTE_DIR  = '/home/pi/networkswitcher'
-        SSH_CRED_ID = 'rpi5-deploy-key'
+        SSH_CRED_ID = 'rpi3wifi-deploy-key'
     }
 
     stages {
