@@ -4,7 +4,7 @@ pipeline {
     environment {
         REMOTE_USER = 'roconnor'
         REMOTE_HOST = '192.168.2.1'
-        REMOTE_DIR  = '/home/pi/networkswitcher'
+        REMOTE_DIR  = '/home/roconnor/networkswitcher'
         SSH_CRED_ID = 'rpi3wifi-deploy-key'
     }
 
