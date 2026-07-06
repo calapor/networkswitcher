@@ -12,6 +12,7 @@ Environment=BIND_HOST=192.168.2.1
 Environment=PORT=8080
 Environment=WIFI_IFACE=wlan0
 Environment=WPA_CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+EnvironmentFile=-/etc/networkswitcher.env
 # If auto-detection picks the wrong DHCP client, set an explicit command, e.g.:
 # Environment=DHCP_CMD=dhclient -1 {iface}
 ExecStart=/opt/networkswitcher/venv/bin/python /opt/networkswitcher/app.py

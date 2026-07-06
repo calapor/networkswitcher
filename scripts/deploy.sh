@@ -42,8 +42,13 @@ cmd_sync() {
 }
 
 cmd_install() {
-    echo "==> Install: running install.sh on ${REMOTE}"
-    ssh "${REMOTE}" "cd '${REMOTE_DIR}' && sudo bash '${REMOTE_DIR}/install.sh'"
+    local app_version="${GIT_COMMIT:0:7} (#${BUILD_NUMBER:-0})"
+    echo "==> Install: running install.sh on ${REMOTE} (version: ${app_version})"
+    ssh "${REMOTE}" "sudo bash -s" <<EOF
+printf 'APP_VERSION=%s\n' '${app_version}' > /etc/networkswitcher.env
+cd '${REMOTE_DIR}'
+bash '${REMOTE_DIR}/install.sh'
+EOF
     echo "   Install complete."
 }
 
