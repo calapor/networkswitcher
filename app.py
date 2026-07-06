@@ -217,7 +217,8 @@ def _failover_monitor():
 
 @app.route("/")
 def index():
-    return render_template("index.html", iface=config.IFACE)
+    import os
+    return render_template("index.html", iface=config.IFACE, app_version=os.environ.get("APP_VERSION", "dev"))
 
 
 @app.route("/api/status")
