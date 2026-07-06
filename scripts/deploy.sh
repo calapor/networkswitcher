@@ -43,7 +43,7 @@ cmd_sync() {
 
 cmd_install() {
     echo "==> Install: running install.sh on ${REMOTE}"
-    ssh "${REMOTE}" "cd '${REMOTE_DIR}' && sudo '${REMOTE_DIR}/install.sh'"
+    ssh "${REMOTE}" "cd '${REMOTE_DIR}' && sudo bash '${REMOTE_DIR}/install.sh'"
     echo "   Install complete."
 }
 
