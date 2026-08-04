@@ -17,6 +17,7 @@ RSYNC_EXCLUDES=(
     --exclude='.venv/'
     --exclude='stats.json'
     --exclude='settings.json'
+    --exclude='phantoms.json'
     --exclude='.git/'
     --exclude='.context/'
 )
@@ -32,7 +33,7 @@ cmd_sync() {
     else
         echo "   rsync absent — falling back to tar-over-ssh (no --delete semantics)"
         local tar_excludes=()
-        for ex in __pycache__ '*.pyc' venv .venv stats.json settings.json .git .context; do
+        for ex in __pycache__ '*.pyc' venv .venv stats.json settings.json phantoms.json .git .context; do
             tar_excludes+=(--exclude="./${ex}")
         done
         tar -C "${WORKSPACE_ROOT}" "${tar_excludes[@]}" -czf - . \
@@ -45,7 +46,12 @@ cmd_install() {
     local app_version="${GIT_COMMIT:0:7} (#${BUILD_NUMBER:-0})"
     echo "==> Install: running install.sh on ${REMOTE} (version: ${app_version})"
     ssh "${REMOTE}" "sudo bash -s" <<EOF
-printf 'APP_VERSION=%s\n' '${app_version}' > /etc/networkswitcher.env
+# Update APP_VERSION in the env file while preserving other keys (SPOOF_MAC, DHCP_HOSTNAME, etc.)
+ENV_FILE=/etc/networkswitcher.env
+tmp=\$(mktemp)
+grep -v '^APP_VERSION=' "\${ENV_FILE}" 2>/dev/null > "\${tmp}" || true
+printf 'APP_VERSION=%s\n' '${app_version}' >> "\${tmp}"
+mv "\${tmp}" "\${ENV_FILE}"
 cd '${REMOTE_DIR}'
 bash '${REMOTE_DIR}/install.sh'
 EOF
