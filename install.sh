@@ -67,7 +67,7 @@ else
 fi
 
 if [[ -f /etc/networkswitcher.env ]]; then
-  SAVED_HOSTNAME=$(grep '^DHCP_HOSTNAME=' /etc/networkswitcher.env | cut -d= -f2- | tr -d '"' | head -1)
+  SAVED_HOSTNAME=$(grep '^DHCP_HOSTNAME=' /etc/networkswitcher.env | cut -d= -f2- | tr -d '"' | head -1 || true)
   if [[ -n "$SAVED_HOSTNAME" ]]; then
     hostnamectl set-hostname "$SAVED_HOSTNAME" && echo "   ok  hostname set to $SAVED_HOSTNAME"
   fi
