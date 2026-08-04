@@ -16,7 +16,7 @@ import wifi
 _FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 _lock = threading.Lock()
 
-_DEFAULTS = {"auto_connect": True, "mode": "order", "order": []}
+_DEFAULTS = {"auto_connect": True, "mode": "order", "order": [], "identity": "default"}
 
 
 def _load_locked():
@@ -32,6 +32,7 @@ def _load_locked():
     data["auto_connect"] = bool(data["auto_connect"])
     data["mode"] = "signal" if data["mode"] == "signal" else "order"
     data["order"] = [str(s) for s in data.get("order", []) if isinstance(s, str)]
+    data["identity"] = str(data.get("identity") or "default")
     return data
 
 
@@ -53,7 +54,7 @@ def set(**kw):
     """Merge the given keys into the stored settings and return the result."""
     with _lock:
         data = _load_locked()
-        for k in ("auto_connect", "mode", "order"):
+        for k in ("auto_connect", "mode", "order", "identity"):
             if k in kw:
                 data[k] = kw[k]
         _save_locked(data)

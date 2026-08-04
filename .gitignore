@@ -5,3 +5,4 @@ venv/
 .context/
 stats.json
 settings.json
+phantoms.json

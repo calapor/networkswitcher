@@ -9,6 +9,12 @@ killall wpa_supplicant 2>/dev/null
 rm -f /var/run/wpa_supplicant/wlan0
 sleep 1
 
+if [ -n "${SPOOF_MAC:-}" ]; then
+  ip link set wlan0 down 2>/dev/null
+  ip link set wlan0 address "$SPOOF_MAC"
+  logger -t wifi-connect "MAC spoofed to $SPOOF_MAC"
+fi
+
 iw reg set GB
 ip link set wlan0 up
 sleep 2

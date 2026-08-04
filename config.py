@@ -21,6 +21,7 @@ WPA_CONF = os.environ.get("WPA_CONF", "/etc/wpa_supplicant/wpa_supplicant-wlan0.
 # placeholder, e.g. "dhclient -1 {iface}". If empty, net.run_dhcp auto-detects
 # an available client (dhcpcd / dhclient / udhcpc).
 DHCP_CMD = os.environ.get("DHCP_CMD", "")
+DHCP_HOSTNAME = os.environ.get("DHCP_HOSTNAME", "")
 
 # How long (seconds) to wait for association + DHCP when switching. Slow APs
 # (e.g. phone hotspots) can take a while, so give association some headroom.

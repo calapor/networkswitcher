@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=forking
+EnvironmentFile=-/etc/networkswitcher.env
 ExecStart=/usr/local/bin/wifi-connect
 RemainAfterExit=yes
 # The script now exits within a few seconds (it backgrounds its DHCP retry), so

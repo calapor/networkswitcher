@@ -23,6 +23,8 @@ _WPA = f"timeout 8 wpa_cli -i {_IFACE}"
 
 _SECTIONS = [
     ("clock / uptime", "date; uptime"),
+    ("device identity (hostname / MAC)",
+        f"hostname 2>&1; ip link show {_IFACE} 2>&1 | grep 'link/ether' || echo '(no ether line)'"),
     ("wpa_supplicant processes", "pgrep -a wpa_supplicant || echo '(none running)'"),
     ("control sockets", f"ls -la /var/run/wpa_supplicant/ 2>&1"),
     ("wifi-connect.service", "systemctl is-active wifi-connect.service; "
