@@ -1,0 +1,9 @@
+[
+  {
+    "id": "default",
+    "name": "Default (Raspberry Pi)",
+    "hostname": "rpi3wifi",
+    "mac": "",
+    "manufacturer": "Raspberry Pi Foundation"
+  }
+]

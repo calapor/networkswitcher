@@ -51,9 +51,30 @@ else
   echo "       apt-get install -y isc-dhcp-client" >&2
 fi
 
-echo "==> Installing files to $APP_DIR"
+echo "==> Seeding device identity profiles"
 mkdir -p "$APP_DIR"
-for item in app.py wifi.py net.py netquality.py config.py diag.py settings.py persist_stats.py requirements.txt templates static; do
+if [[ ! -f "$APP_DIR/phantoms.json" ]]; then
+  cat > "$APP_DIR/phantoms.json" << 'PROFILES'
+[
+  { "id": "default", "name": "Default (Raspberry Pi)", "hostname": "rpi3wifi", "mac": "", "manufacturer": "Raspberry Pi Foundation" },
+  { "id": "neff-dishwasher", "name": "Neff Dishwasher S153HKX03G", "hostname": "neff-dishwasher-4040604282", "mac": "68:A4:0E:A7:B3:12", "manufacturer": "BSH Hausgeraete" },
+  { "id": "tplink-plug", "name": "TP-Link Smart Plug", "hostname": "TP-LINK_Smart_Plug_5E93", "mac": "50:C7:BF:12:5E:93", "manufacturer": "TP-Link" }
+]
+PROFILES
+  echo "   ok  phantoms.json seeded with 3 device profiles"
+else
+  echo "   ok  phantoms.json already exists — not overwritten"
+fi
+
+if [[ -f /etc/networkswitcher.env ]]; then
+  SAVED_HOSTNAME=$(grep '^DHCP_HOSTNAME=' /etc/networkswitcher.env | cut -d= -f2- | tr -d '"' | head -1)
+  if [[ -n "$SAVED_HOSTNAME" ]]; then
+    hostnamectl set-hostname "$SAVED_HOSTNAME" && echo "   ok  hostname set to $SAVED_HOSTNAME"
+  fi
+fi
+
+echo "==> Installing files to $APP_DIR"
+for item in app.py wifi.py net.py netquality.py config.py diag.py settings.py persist_stats.py phantom.py phantoms.json.example requirements.txt templates static; do
   cp -r "$SRC_DIR/$item" "$APP_DIR/"
 done
 

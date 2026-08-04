@@ -5,6 +5,7 @@ WiFi, scan/add networks, and switch which network wlan0 connects to — without
 SSH. Switching is performed in a background worker so the HTTP request returns
 immediately and the page polls /api/status for progress.
 """
+import subprocess
 import threading
 import time
 
@@ -15,6 +16,7 @@ import diag
 import net
 import netquality
 import persist_stats
+import phantom
 import settings
 import wifi
 
@@ -37,6 +39,37 @@ def _apply_policy():
     s = settings.get()
     order = [n["ssid"] for n in settings.ordered_networks()]
     wifi.apply_policy(order, s["mode"], s["auto_connect"])
+
+
+def _write_env_file(device):
+    """Update /etc/networkswitcher.env with SPOOF_MAC and DHCP_HOSTNAME.
+
+    Preserves any other keys already in the file.
+    """
+    mac = device.get("mac", "")
+    hostname = device.get("hostname", "")
+    lines = []
+    try:
+        with open("/etc/networkswitcher.env") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    k = stripped.split("=", 1)[0]
+                    if k in ("SPOOF_MAC", "DHCP_HOSTNAME"):
+                        continue
+                lines.append(line.rstrip("\n"))
+    except (FileNotFoundError, OSError):
+        pass
+    if mac:
+        lines.append(f"SPOOF_MAC={mac}")
+    if hostname:
+        lines.append(f"DHCP_HOSTNAME={hostname}")
+    content = "\n".join(lines) + "\n" if lines else ""
+    try:
+        with open("/etc/networkswitcher.env", "w") as f:
+            f.write(content)
+    except OSError:
+        pass
 
 
 def _associate_and_dhcp(connect_fn):
@@ -110,6 +143,111 @@ def _start(connect_fn, target_label, delay=0):
         _set(busy=True, step="starting", error="", target=target_label)
     threading.Thread(
         target=_switch_worker, args=(connect_fn, target_label, delay), daemon=True
+    ).start()
+    return True
+
+
+def _identity_worker(device_id):
+    """Background worker: apply a phantom device identity (MAC + hostname)."""
+    try:
+        device = phantom.get(device_id)
+        if device is None:
+            _set(busy=False, step="failed", error=f"unknown device id: {device_id!r}")
+            return
+
+        label = device.get("name", device_id)
+        _set(busy=True, step="changing identity", target=label)
+
+        settings.set(identity=device_id)
+        _write_env_file(device)
+
+        hostname = device.get("hostname", "")
+        if hostname:
+            subprocess.run(
+                ["hostnamectl", "set-hostname", hostname],
+                capture_output=True, timeout=10,
+            )
+        config.DHCP_HOSTNAME = hostname
+
+        mac = device.get("mac", "")
+        if not mac:
+            perm = phantom.permanent_mac(config.IFACE)
+            if perm:
+                mac = perm
+
+        if mac:
+            _set(step="changing MAC")
+            subprocess.run(["killall", "wpa_supplicant"], capture_output=True, timeout=5)
+            time.sleep(0.5)
+            subprocess.run(
+                ["rm", "-f", f"/var/run/wpa_supplicant/{config.IFACE}"],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                ["ip", "link", "set", config.IFACE, "down"],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                ["ip", "link", "set", config.IFACE, "address", mac],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                ["ip", "link", "set", config.IFACE, "up"],
+                capture_output=True, timeout=5,
+            )
+            time.sleep(1)
+            subprocess.run(
+                [
+                    "wpa_supplicant", "-B", "-D", "nl80211",
+                    "-i", config.IFACE,
+                    "-c", config.WPA_CONF,
+                    "-P", "/var/run/wpa_supplicant.pid",
+                ],
+                capture_output=True, timeout=10,
+            )
+
+        # Wait for wpa_supplicant to associate (tolerates supplicant still
+        # initialising its control socket by catching WifiError in the loop).
+        _set(step="associating")
+        deadline = time.time() + config.ASSOC_TIMEOUT
+        associated = False
+        while time.time() < deadline:
+            try:
+                if wifi.status().get("wpa_state") == "COMPLETED":
+                    associated = True
+                    break
+            except wifi.WifiError:
+                pass  # supplicant still initialising
+            time.sleep(1)
+
+        if not associated:
+            raise wifi.WifiError(
+                "did not associate — check the password and that the network is in range"
+            )
+
+        _set(step="getting IP address")
+        ok, msg = net.run_dhcp(config.IFACE)
+        if not ok:
+            raise wifi.WifiError(f"associated but DHCP failed: {msg}")
+
+        deadline = time.time() + 10
+        while time.time() < deadline and not net.iface_ip(config.IFACE):
+            time.sleep(1)
+        if not net.iface_ip(config.IFACE):
+            raise wifi.WifiError("associated but no IP address was assigned")
+
+        _set(busy=False, step=f"connected as {label}")
+    except Exception as e:  # noqa: BLE001 - surface any failure to the UI
+        _set(busy=False, step="failed", error=str(e))
+
+
+def _start_identity(device_id, label):
+    with _lock:
+        if _action["busy"]:
+            return False
+        _set(busy=True, step="starting", error="", target=label)
+    threading.Thread(
+        target=_identity_worker, args=(device_id,), daemon=True
     ).start()
     return True
 
@@ -389,11 +527,51 @@ def api_action_dismiss():
     return jsonify({"ok": True})
 
 
+@app.route("/api/identity")
+def api_identity():
+    devices = phantom.load()
+    identity_id = settings.get()["identity"]
+    device = phantom.get(identity_id) or (devices[0] if devices else {})
+    return jsonify({
+        "current": identity_id,
+        "name": device.get("name", ""),
+        "hostname": device.get("hostname", ""),
+        "mac": phantom.current_mac(config.IFACE) or "",
+        "manufacturer": device.get("manufacturer", ""),
+        "devices": devices,
+    })
+
+
+@app.route("/api/identity", methods=["POST"])
+def api_identity_set():
+    data = request.get_json(silent=True) or {}
+    device_id = (data.get("id") or "").strip()
+    if not device_id:
+        return jsonify({"error": "missing device id"}), 400
+    device = phantom.get(device_id)
+    if device is None:
+        return jsonify({"error": f"unknown device id: {device_id!r}"}), 404
+    label = device.get("name", device_id)
+    if not _start_identity(device_id, label):
+        return jsonify({"error": "another switch is already in progress"}), 409
+    return jsonify({"ok": True})
+
+
 if __name__ == "__main__":
     # Make wpa_supplicant reflect the saved auto-connect policy on boot.
     try:
         _apply_policy()
     except wifi.WifiError:
         pass  # supplicant may not be reachable yet; the watchdog will recover it
+    # Apply saved device identity: set in-process DHCP_HOSTNAME so DHCP leases
+    # use the phantom hostname. The MAC is handled by wifi-connect.sh reading
+    # SPOOF_MAC from /etc/networkswitcher.env before the supplicant starts.
+    try:
+        identity_id = settings.get().get("identity", "default")
+        device = phantom.get(identity_id)
+        if device:
+            config.DHCP_HOSTNAME = device.get("hostname", "")
+    except Exception:  # noqa: BLE001
+        pass
     threading.Thread(target=_failover_monitor, daemon=True, name="failover").start()
     app.run(host=config.BIND_HOST, port=config.PORT, threaded=True)

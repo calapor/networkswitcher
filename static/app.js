@@ -127,10 +127,53 @@ async function refreshStatus() {
   try {
     const s = await getJSON("/api/status");
     renderStatus(s);
-    if (!(s.action && s.action.busy)) loadConfig();
+    if (!(s.action && s.action.busy)) {
+      loadConfig();
+      loadIdentity();
+    }
   } catch (e) {
     clearTimeout(pollTimer);
     pollTimer = setTimeout(refreshStatus, 4000);
+  }
+}
+
+// --- identity ---------------------------------------------------------------
+
+async function loadIdentity() {
+  try {
+    const d = await getJSON("/api/identity");
+    $("id-name").textContent = d.name || "—";
+    $("id-hostname").textContent = d.hostname || "—";
+    $("id-mac").textContent = d.mac || "—";
+    $("id-manufacturer").textContent = d.manufacturer || "—";
+    const sel = $("id-select");
+    const prev = sel.value;
+    sel.innerHTML = "";
+    (d.devices || []).forEach(dev => {
+      const opt = document.createElement("option");
+      opt.value = dev.id;
+      opt.textContent = dev.name;
+      if (dev.id === d.current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    // restore an in-flight selection the user made before the poll ran
+    if (prev && prev !== d.current && sel.querySelector(`option[value="${prev}"]`)) {
+      sel.value = prev;
+    }
+  } catch (e) { /* ignore — card stays at last known values */ }
+}
+
+async function doSwitchIdentity() {
+  const id = $("id-select").value;
+  const btn = $("id-switch");
+  btn.disabled = true;
+  try {
+    await postJSON("/api/identity", { id });
+    refreshStatus();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -535,6 +578,7 @@ function switchTab(view) {
 
 $("scan-btn").addEventListener("click", doScan);
 $("add-form").addEventListener("submit", doAdd);
+$("id-switch").addEventListener("click", doSwitchIdentity);
 $("ac-enabled").addEventListener("change", (e) => saveConfig({ auto_connect: e.target.checked }));
 document.querySelectorAll("#ac-mode .seg").forEach(b =>
   b.addEventListener("click", () => {
@@ -543,5 +587,6 @@ document.querySelectorAll("#ac-mode .seg").forEach(b =>
   }));
 document.querySelectorAll(".tab[data-period]").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
 refreshStatus();
+loadIdentity();
 loadHistory();
 setInterval(loadHistory, 300000);

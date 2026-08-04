@@ -107,13 +107,20 @@ def _dhcp_command(iface):
     """
     if config.DHCP_CMD:
         return config.DHCP_CMD.format(iface=iface).split()
+    hostname = getattr(config, "DHCP_HOSTNAME", "")
     if shutil.which("dhcpcd"):
-        # one-shot: (re)acquire a lease on this iface then exit
-        return ["dhcpcd", "-n", iface]
+        cmd = ["dhcpcd", "-n", iface]
+        if hostname:
+            cmd += ["-h", hostname]
+        return cmd
     if shutil.which("dhclient"):
+        # dhclient reads the system hostname automatically
         return ["dhclient", "-1", iface]
     if shutil.which("udhcpc"):
-        return ["udhcpc", "-i", iface, "-n", "-q"]
+        cmd = ["udhcpc", "-i", iface, "-n", "-q"]
+        if hostname:
+            cmd += ["-H", hostname]
+        return cmd
     return None
 
 

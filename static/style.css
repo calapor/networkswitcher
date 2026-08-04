@@ -121,4 +121,12 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .chart-wrap { position: relative; height: 200px; margin-top: 16px; }
 
+/* identity card select */
+.card select {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--fg); padding: 7px 10px;
+  font-size: .9rem; cursor: pointer; flex: 1;
+}
+.card select:focus { outline: none; border-color: var(--accent); }
+
 footer { margin-top: 24px; text-align: center; color: var(--muted); }
