@@ -94,6 +94,9 @@ code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
 .toggle .seg.active { background: var(--accent); color: #fff; }
 .mode-row.disabled { opacity: .4; pointer-events: none; }
 
+/* per-network auto-reconnect checkbox in saved list */
+.list .auto-cb { flex: none; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
 /* reorder arrows in the saved list */
 .arrows { display: flex; flex-direction: column; gap: 2px; flex: none; }
 .arrows .arrow {
