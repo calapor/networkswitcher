@@ -91,7 +91,9 @@ def ordered_networks():
         data["order"] = ranked + extras
         _save_locked(data)
         order = data["order"]
-        auto_set = set(data["auto"])
+        # NB: this module defines its own `set()` (above), which shadows the
+        # builtin — use a set-comprehension literal, not set(...), here.
+        auto_set = {s for s in data["auto"]}
     result = [by_ssid[s] for s in order if s in by_ssid]
     for n in result:
         n["auto"] = n["ssid"] in auto_set
