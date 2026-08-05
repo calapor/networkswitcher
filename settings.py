@@ -1,11 +1,14 @@
 """Persistent auto-connect settings for the WiFi switcher.
 
 Stores the user's auto-connect policy in settings.json next to the app:
-    {"auto_connect": bool, "mode": "order"|"signal", "order": [ssid, ...]}
+    {"auto": [ssid, ...], "mode": "order"|"signal", "order": [ssid, ...]}
 
 `order` is the canonical preference ranking (most-preferred first), kept by SSID
 so it survives even in "signal" mode — where wpa_supplicant's per-network
 priorities are all flattened to 0 and so can't carry the ranking themselves.
+
+`auto` is the opt-in set of SSIDs the user has checked for auto-reconnect.
+A network auto-reconnects only if its SSID appears in this list.
 """
 import json
 import os
@@ -16,23 +19,34 @@ import wifi
 _FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 _lock = threading.Lock()
 
-_DEFAULTS = {"auto_connect": True, "mode": "order", "order": [], "identity": "default"}
+_DEFAULTS = {"auto": [], "mode": "order", "order": [], "identity": "default"}
 
 
 def _load_locked():
     data = dict(_DEFAULTS)
+    stored = {}
     try:
         with open(_FILE) as f:
-            stored = json.load(f)
-        if isinstance(stored, dict):
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            stored = raw
             data.update({k: stored[k] for k in _DEFAULTS if k in stored})
     except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError):
         pass
     # normalise
-    data["auto_connect"] = bool(data["auto_connect"])
     data["mode"] = "signal" if data["mode"] == "signal" else "order"
     data["order"] = [str(s) for s in data.get("order", []) if isinstance(s, str)]
     data["identity"] = str(data.get("identity") or "default")
+    # normalise auto (per-SSID opt-in list); migrate from legacy auto_connect bool
+    if "auto" in stored:
+        data["auto"] = [str(s) for s in stored["auto"] if isinstance(s, str)]
+    elif stored.get("auto_connect", False):
+        try:
+            data["auto"] = [n["ssid"] for n in wifi.list_networks()]
+        except Exception:
+            data["auto"] = []
+    else:
+        data["auto"] = []
     return data
 
 
@@ -54,7 +68,7 @@ def set(**kw):
     """Merge the given keys into the stored settings and return the result."""
     with _lock:
         data = _load_locked()
-        for k in ("auto_connect", "mode", "order", "identity"):
+        for k in ("auto", "mode", "order", "identity"):
             if k in kw:
                 data[k] = kw[k]
         _save_locked(data)
@@ -77,4 +91,8 @@ def ordered_networks():
         data["order"] = ranked + extras
         _save_locked(data)
         order = data["order"]
-    return [by_ssid[s] for s in order if s in by_ssid]
+        auto_set = set(data["auto"])
+    result = [by_ssid[s] for s in order if s in by_ssid]
+    for n in result:
+        n["auto"] = n["ssid"] in auto_set
+    return result

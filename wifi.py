@@ -193,18 +193,17 @@ def current_nid():
     return None
 
 
-def apply_policy(order_ssids, mode, auto_connect):
+def apply_policy(order_ssids, mode, auto_ssids):
     """Push the auto-connect policy down into wpa_supplicant and persist it.
 
     `order_ssids` is the user's preference ranking (most-preferred first).
+    `auto_ssids` is the set of SSIDs the user has opted into auto-reconnect.
 
     - priority: in "order" mode each network gets a distinct descending priority
       matching its rank (top of the list = highest); in "signal" mode all
       priorities are 0 so wpa_supplicant simply picks the strongest AP in range.
-    - enable/disable: when auto_connect is on, every saved network is enabled so
-      wpa_supplicant can associate/roam on its own. When off, only the currently
-      connected network stays enabled (the rest are disabled) so the bridge will
-      not auto-join anything — connections become manual-only.
+    - enable/disable: a network is enabled iff its SSID is in auto_ssids OR it is
+      the currently-connected network (so manual connections are never dropped).
     """
     nets = list_networks()
     rank = {ssid: i for i, ssid in enumerate(order_ssids)}
@@ -218,7 +217,7 @@ def apply_policy(order_ssids, mode, auto_connect):
             # unranked (e.g. just-added) networks sort to the bottom
             prio = n - rank.get(net["ssid"], n)
         _ok(_wpa("set_network", nid, "priority", str(prio)))
-        if auto_connect or net["id"] == cur:
+        if net["ssid"] in auto_ssids or net["id"] == cur:
             _wpa("enable_network", nid)
         else:
             _wpa("disable_network", nid)

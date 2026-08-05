@@ -38,7 +38,7 @@ def _apply_policy():
     """Push the current auto-connect settings down into wpa_supplicant."""
     s = settings.get()
     order = [n["ssid"] for n in settings.ordered_networks()]
-    wifi.apply_policy(order, s["mode"], s["auto_connect"])
+    wifi.apply_policy(order, s["mode"], set(s["auto"]))
 
 
 def _write_env_file(device):
@@ -276,12 +276,13 @@ def _connect_and_verify(nid, ssid):
 
 
 def _failover_candidates():
-    """Saved networks currently visible, strongest signal first, excluding the
-    network we're connected to now (it's the one that just failed)."""
+    """Saved networks currently visible and checked for auto-reconnect,
+    strongest signal first, excluding the network we're connected to now."""
     results = wifi.scan_results()  # already deduped per SSID, sorted by dBm desc
     dbm = {e["ssid"]: e["dbm"] for e in results}
     saved = wifi.list_networks()
-    cands = [n for n in saved if n["ssid"] in dbm and not n["current"]]
+    auto_ssids = set(settings.get()["auto"])
+    cands = [n for n in saved if n["ssid"] in dbm and not n["current"] and n["ssid"] in auto_ssids]
     cands.sort(key=lambda n: dbm[n["ssid"]], reverse=True)
     return cands
 
@@ -336,7 +337,7 @@ def _failover_monitor():
         if _action["busy"]:
             continue
         try:
-            if not settings.get()["auto_connect"]:
+            if not settings.get()["auto"]:
                 fails = 0
                 continue
         except Exception:  # noqa: BLE001 - settings unreadable; skip this tick
@@ -420,21 +421,46 @@ def api_config():
         nets = settings.ordered_networks()
     except wifi.WifiError as e:
         return jsonify({"error": str(e)}), 500
-    return jsonify({"auto_connect": s["auto_connect"], "mode": s["mode"], "networks": nets})
+    return jsonify({"mode": s["mode"], "networks": nets})
 
 
 @app.route("/api/config", methods=["POST"])
 def api_config_set():
     data = request.get_json(silent=True) or {}
     kw = {}
-    if "auto_connect" in data:
-        kw["auto_connect"] = bool(data["auto_connect"])
     if "mode" in data:
         if data["mode"] not in ("order", "signal"):
             return jsonify({"error": "mode must be 'order' or 'signal'"}), 400
         kw["mode"] = data["mode"]
     settings.set(**kw)
     try:
+        _apply_policy()
+    except wifi.WifiError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/networks/auto", methods=["POST"])
+def api_auto():
+    """Toggle per-network auto-reconnect. Body: {id, auto: bool}."""
+    data = request.get_json(silent=True) or {}
+    try:
+        nid = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "missing network id"}), 400
+    enable = bool(data.get("auto", False))
+    try:
+        by_id = {n["id"]: n["ssid"] for n in wifi.list_networks()}
+        ssid = by_id.get(nid)
+        if ssid is None:
+            return jsonify({"error": f"network id {nid} not found"}), 404
+        s = settings.get()
+        auto = list(s["auto"])
+        if enable and ssid not in auto:
+            auto.append(ssid)
+        elif not enable and ssid in auto:
+            auto.remove(ssid)
+        settings.set(auto=auto)
         _apply_policy()
     except wifi.WifiError as e:
         return jsonify({"error": str(e)}), 500

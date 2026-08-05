@@ -197,11 +197,18 @@ async function loadConfig() {
 }
 
 function renderAutoConnect(cfg) {
-  $("ac-enabled").checked = !!cfg.auto_connect;
   document.querySelectorAll("#ac-mode .seg").forEach(b =>
     b.classList.toggle("active", b.dataset.mode === cfg.mode));
-  // the order/signal toggle only applies while auto-connect is on
-  $("ac-mode-row").classList.toggle("disabled", !cfg.auto_connect);
+}
+
+async function setAuto(id, enabled) {
+  try {
+    await postJSON("/api/networks/auto", { id, auto: enabled });
+    loadConfig();
+  } catch (e) {
+    alert(e.message);
+    loadConfig();
+  }
 }
 
 function renderSaved(nets) {
@@ -213,6 +220,14 @@ function renderSaved(nets) {
   ul.innerHTML = "";
   nets.forEach((n, i) => {
     const li = document.createElement("li");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "auto-cb";
+    cb.checked = !!n.auto;
+    cb.title = "Auto-reconnect";
+    cb.onchange = () => setAuto(n.id, cb.checked);
+    li.appendChild(cb);
 
     const arrows = document.createElement("span");
     arrows.className = "arrows";
@@ -579,10 +594,8 @@ function switchTab(view) {
 $("scan-btn").addEventListener("click", doScan);
 $("add-form").addEventListener("submit", doAdd);
 $("id-switch").addEventListener("click", doSwitchIdentity);
-$("ac-enabled").addEventListener("change", (e) => saveConfig({ auto_connect: e.target.checked }));
 document.querySelectorAll("#ac-mode .seg").forEach(b =>
   b.addEventListener("click", () => {
-    if (!$("ac-enabled").checked) return;  // toggle is inert while auto-connect is off
     saveConfig({ mode: b.dataset.mode });
   }));
 document.querySelectorAll(".tab[data-period]").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.period)));
