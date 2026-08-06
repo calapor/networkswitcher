@@ -60,17 +60,31 @@ network and switch to a working network.
 
 **Automatic failover & roaming**
 - A background monitor watches internet reachability; after a sustained outage
-  (default ~2 min) it scans and **auto-switches to the strongest saved network
-  that is actually pingable**, not just one that associates.
-- **Auto-connect** toggle: when on, all saved networks stay enabled so
-  `wpa_supplicant` roams/falls back on its own; when off, only the current
-  network stays enabled (manual-only, never switches itself).
+  (default ~2 min) it scans and **auto-switches to the strongest opted-in saved
+  network that is actually pingable**, not just one that associates.
+- **Per-network auto-reconnect**: tick individual saved networks to opt them
+  into auto-reconnect. The ticked networks (plus whichever is currently
+  connected) stay enabled in `wpa_supplicant` so it roams/falls back among them
+  on its own; unticked networks are disabled and never auto-joined. The failover
+  monitor only runs while at least one network is ticked, and only ever switches
+  to ticked, pingable networks.
 - **Preference policy**: *List order* (drag-rank saved networks with ▲▼; highest
   rank wins when multiple are in range) or *Strongest signal* (flatten
   priorities and just take the strongest AP). Persisted into
   `wpa_supplicant.conf` so it survives reboots.
 - **Phone-hotspot delay/countdown**: set a delay before a switch so you can
   enable Personal Hotspot after pressing Connect.
+
+**Device identity (MAC & hostname)**
+- Present a chosen **device profile** to the upstream network: each profile
+  carries a **MAC address**, **hostname**, and manufacturer label. Switching
+  profiles from the panel rewrites the `wlan0` MAC, sets the system hostname
+  (so DHCP leases use it), restarts the supplicant, and re-associates.
+- Profiles live in `phantoms.json` (seeded by `install.sh` with a few example
+  devices). The selected identity persists across reboots via `SPOOF_MAC` /
+  `DHCP_HOSTNAME` written to `/etc/networkswitcher.env`, which the supplicant
+  launcher applies before `wpa_supplicant` starts.
+- A profile with an empty MAC restores the interface's factory/permanent MAC.
 
 **Connection quality & data usage**
 - Per-minute background sampler records **ping latency** and a light **download
@@ -113,7 +127,7 @@ network and switch to a working network.
 ![Usage history — weekly, monthly, yearly, and per-network data charts](docs/screenshots/history.png)
 
 ### Auto-connect settings
-![Auto-connect settings — enable/disable toggle and list-order vs strongest-signal mode](docs/screenshots/autoconnect.png)
+![Auto-connect settings — per-network opt-in and list-order vs strongest-signal mode](docs/screenshots/autoconnect.png)
 
 ### Saved networks
 ![Saved networks — drag-ranked list with per-network connect button and hotspot delay](docs/screenshots/saved-networks.png)
@@ -133,7 +147,7 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full breakdown
 boot-race / supplicant-survival design). In brief:
 
 - **`app.py`** — Flask app + JSON API; background **switch worker**,
-  **auto-failover worker**, and **failover monitor** threads.
+  **auto-failover worker**, **failover monitor**, and **identity worker** threads.
 - **`wifi.py`** — thin `wpa_cli` wrapper (status, scan, add/select/forget,
   priority/enable policy, `save_config`).
 - **`net.py`** — interface IP/carrier/bytes, internet probe, ping, sized speed
@@ -142,8 +156,10 @@ boot-race / supplicant-survival design). In brief:
 - **`persist_stats.py`** — durable all-time + per-period + per-SSID byte
   accounting with reset/misread guards.
 - **`diag.py`** — the no-secrets diagnostic bundle.
+- **`phantom.py`** — device-identity profiles (MAC / hostname / manufacturer)
+  loaded from `phantoms.json`.
 - **`config.py` / `settings.py`** — env-var config / persisted auto-connect
-  policy (`settings.json`).
+  policy and selected device identity (`settings.json`).
 - **System glue** — `wifi-connect.{sh,service}` (supplicant launcher),
   `wifi-watchdog.{sh,service,timer}` (self-heal), `networkswitcher.service`
   (the panel), `netdebug.sh` (CLI diagnostics).
@@ -203,10 +219,12 @@ sudo ./install.sh
    detects a DHCP client.
 2. Installs the **supplicant launcher + self-healing watchdog**
    (`wifi-connect`, `wifi-watchdog`) and their systemd units, and enables them.
-3. Copies the app to `/opt/networkswitcher`, creates a virtualenv, installs
+3. **Seeds device-identity profiles** into `phantoms.json` (skipped if it
+   already exists) and re-applies any saved hostname.
+4. Copies the app to `/opt/networkswitcher`, creates a virtualenv, installs
    deps (gracefully continues offline if Flask is already present).
-4. Installs and starts the **`networkswitcher`** service.
-5. Adds the defense-in-depth `iptables` DROP on `wlan0:PORT`.
+5. Installs and starts the **`networkswitcher`** service.
+6. Adds the defense-in-depth `iptables` DROP on `wlan0:PORT`.
 
 > Note: you should also **mask** the stock `wpa_supplicant.service` and
 > `wpa_supplicant@wlan0.service` so they don't fight the launcher on boot — see
